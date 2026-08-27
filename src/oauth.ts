@@ -5,15 +5,21 @@
  *   ~/.grok-bridge/auth.json
  *   ~/.grok/auth.json
  *
- * Refresh uses the same client id and token endpoint as grok-bridge and
- * pi-ai's xAI OAuth helper, so an existing SuperGrok / X Premium login
- * works without a second browser dance.
+ * At plugin start the bootstrap also walks a small set of home/config
+ * locations. Refresh uses the same client id and token endpoint as
+ * grok-bridge, so an existing SuperGrok / X Premium login works without a
+ * second browser dance.
  */
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { expiresInSeconds, searchLocalTokens } from './discover.js'
+import { normalizeTokens } from './tokens.js'
+import type { OAuthConfig, StoredTokens } from './tokens.js'
+export type { OAuthConfig, StoredTokens } from './tokens.js'
+export { normalizeTokens } from './tokens.js'
 
 export const DEFAULT_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828'
 export const DEFAULT_SCOPE = 'openid profile email offline_access grok-cli:access api:access'
@@ -26,25 +32,6 @@ export const DEFAULT_CLIENT_VERSION = '1.0.0'
 export const DEFAULT_CLIENT_MODE = 'cli'
 const REFRESH_SKEW_MS = 5 * 60 * 1000
 const DEFAULT_TOKEN_LIFETIME_SECONDS = 3600
-
-export interface OAuthConfig {
-  authBase: string
-  tokenPath: string
-  deviceCodePath: string
-  clientId: string
-  scope: string
-  authFile: string
-  grokCliAuthFile: string
-  configFile: string
-}
-
-export interface StoredTokens {
-  accessToken: string
-  refreshToken: string | null
-  expiresAt: number | null
-  clientId: string | null
-  source: 'grok-bridge' | 'grok-cli'
-}
 
 export interface AccessToken {
   accessToken: string
@@ -91,40 +78,34 @@ async function readJson(path: string): Promise<Record<string, unknown> | null> {
   }
 }
 
-export function normalizeTokens(raw: unknown, source: StoredTokens['source']): StoredTokens | null {
-  if (raw === null || typeof raw !== 'object') return null
-  const record = raw as Record<string, unknown>
-  let candidate = (record.tokens ?? record.credentials ?? record.oauth ?? record) as Record<string, unknown>
-  let accessToken = stringField(candidate, 'access_token')
-    ?? stringField(candidate, 'accessToken')
-    ?? stringField(candidate, 'token')
-  if (accessToken === undefined) {
-    const entry = Object.values(record).find((value): value is Record<string, unknown> =>
-      value !== null
-      && typeof value === 'object'
-      && typeof (value as { key?: unknown }).key === 'string'
-      && ((value as { refresh_token?: unknown }).refresh_token !== undefined
-        || (value as { expires_at?: unknown }).expires_at !== undefined))
-    if (entry === undefined) return null
-    candidate = entry
-    accessToken = stringField(entry, 'key')
-  }
-  if (accessToken === undefined) return null
-  const refreshToken = stringField(candidate, 'refresh_token') ?? stringField(candidate, 'refreshToken') ?? null
-  let expiresAt: number | null = null
-  const rawExpiry = candidate.expires_at ?? candidate.expiresAt
-  if (typeof rawExpiry === 'string') expiresAt = Date.parse(rawExpiry) || null
-  else if (typeof rawExpiry === 'number' && Number.isFinite(rawExpiry)) {
-    expiresAt = rawExpiry < 1e12 ? rawExpiry * 1000 : rawExpiry
-  }
-  const clientId = stringField(candidate, 'oidc_client_id') ?? stringField(candidate, 'clientId') ?? null
-  return { accessToken, refreshToken, expiresAt, clientId, source }
-}
-
-export async function loadStoredTokens(config: OAuthConfig): Promise<StoredTokens | null> {
+export async function loadCanonicalTokens(config: OAuthConfig): Promise<StoredTokens | null> {
   const own = normalizeTokens(await readJson(config.authFile), 'grok-bridge')
   if (own !== null) return own
   return normalizeTokens(await readJson(config.grokCliAuthFile), 'grok-cli')
+}
+
+export async function adoptTokens(
+  config: OAuthConfig,
+  tokens: StoredTokens,
+): Promise<StoredTokens> {
+  const expiresIn = expiresInSeconds(tokens)
+  return saveTokens(config, {
+    access_token: tokens.accessToken,
+    ...tokens.refreshToken === null ? {} : { refresh_token: tokens.refreshToken },
+    ...expiresIn === undefined ? {} : { expires_in: expiresIn },
+  }, tokens.refreshToken)
+}
+
+export async function loadStoredTokens(config: OAuthConfig): Promise<StoredTokens | null> {
+  const canonical = await loadCanonicalTokens(config)
+  if (canonical !== null) return canonical
+  const discovered = await searchLocalTokens(config)
+  if (discovered === null) return null
+  try {
+    return await adoptTokens(config, discovered)
+  } catch {
+    return discovered
+  }
 }
 
 export async function saveTokens(
@@ -206,12 +187,17 @@ export async function refreshTokens(
   }, refreshToken)
 }
 
+export function missingTokenError(): Error {
+  return new Error(
+    'xAI OAuth is not configured. The plugin searched ~/.grok-bridge, ~/.grok, and common config dirs. '
+    + 'Run `npx dsh-llm-xai-oauth login` from a terminal, or set DSH_XAI_OAUTH_NO_LOGIN=1 to skip the device flow.',
+  )
+}
+
 export async function getAccessToken(config: OAuthConfig, signal?: AbortSignal): Promise<string> {
   const tokens = await loadStoredTokens(config)
   if (tokens === null) {
-    throw new Error(
-      'xAI OAuth is not configured. Run `npx dsh-llm-xai-oauth login`, `grok-bridge login`, or `grok login`.',
-    )
+    throw missingTokenError()
   }
   const expiringSoon = tokens.expiresAt !== null && tokens.expiresAt - Date.now() < REFRESH_SKEW_MS
   if (expiringSoon && tokens.refreshToken !== null) {

@@ -1,8 +1,11 @@
 /**
- * Register an `xai` LLM route that authenticates with the machine's existing
- * SuperGrok / X Premium OAuth tokens. Connection facts resolve per request
- * from the optional `llm-xai-oauth` settings section; the access token is
- * refreshed from ~/.grok-bridge/auth.json just before each call.
+ * Register an `xai` LLM route that authenticates with SuperGrok / X Premium
+ * OAuth tokens. On start the plugin searches the machine for a reusable
+ * grok-bridge / Grok CLI token, falls back to the xAI device-code login on a
+ * TTY, then writes `agent-default-model` so `/model` and new agents land on
+ * Grok. Connection facts resolve per request from the optional
+ * `llm-xai-oauth` settings section; the access token is refreshed from
+ * ~/.grok-bridge/auth.json just before each call.
  *
  * @module dsh-llm-xai-oauth
  */
@@ -21,6 +24,7 @@ import {
   mergeXaiCatalog,
 } from './adapter.js'
 import type { XaiCatalogModel, XaiConnectionOptions } from './adapter.js'
+import { bootstrapXaiOAuth } from './bootstrap.js'
 import {
   DEFAULT_CLIENT_MODE,
   DEFAULT_CLIENT_VERSION,
@@ -29,7 +33,7 @@ import {
   getAccessToken,
   proxyDispatcher,
 } from './oauth.js'
-import type { RequestDefaults, XaiReasoningEffort } from './serialize.js'
+import type { XaiReasoningEffort } from './serialize.js'
 import { fetch as undiciFetch } from 'undici'
 
 export { XaiAdapter } from './adapter.js'
@@ -40,8 +44,12 @@ export {
   DEFAULT_SCOPE,
   DEFAULT_UPSTREAM_BASE,
   getAccessToken,
+  loadCanonicalTokens,
   loadStoredTokens,
 } from './oauth.js'
+export { bootstrapXaiOAuth } from './bootstrap.js'
+export { searchLocalTokens } from './discover.js'
+export { applyDshDefaultModel, defaultModelSelection } from './dsh-defaults.js'
 
 export const name = 'llm-xai-oauth'
 export const inject = ['llm']
@@ -156,7 +164,14 @@ export function resolveAdapterOptions(config: Config): XaiConnectionOptions {
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
+  const oauth = defaultOAuthConfig()
+  const ready = bootstrapXaiOAuth(oauth, ctx).catch((error: unknown) => {
+    ctx.logger.warn('llm-xai-oauth: startup token search / login did not finish')
+    ctx.logger.warn(error)
+    return undefined
+  })
+
   let current: () => Config = () => config
   let lastRaw: Config | undefined
   let lastGood: XaiConnectionOptions | undefined
@@ -178,8 +193,8 @@ export function apply(ctx: Context, config: Config): void {
   }
   options()
 
-  const oauth = defaultOAuthConfig()
   const resolveAccessToken = async (): Promise<string> => {
+    await ready
     try {
       return await getAccessToken(oauth)
     } catch (error) {
@@ -202,7 +217,7 @@ export function apply(ctx: Context, config: Config): void {
   // the catalog key. This plugin owns the live adapter route instead, which is
   // what /model and agent-default-model dispatch through.
   const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
-  void refreshLiveCatalog().catch((error: unknown) => {
+  void ready.then(() => refreshLiveCatalog()).catch((error: unknown) => {
     ctx.logger.warn('llm-xai-oauth: live SuperGrok catalog unavailable; using the static fallback')
     ctx.logger.warn(error)
   })
@@ -249,6 +264,8 @@ export function apply(ctx: Context, config: Config): void {
     },
     onChange: ensureRegistrationFacts,
   })
+
+  await ready
 }
 
 export default { name, inject, Config, apply }

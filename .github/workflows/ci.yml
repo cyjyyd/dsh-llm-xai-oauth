@@ -12,5 +12,4 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
-      - run: npx tsc -p tsconfig.json --noEmit
-      - run: node tests/helpers.test.mjs
+      - run: npm test

@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-xai-oauth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Native SuperGrok / X Premium OAuth provider for DeepSeek Harness. Reuses local grok-bridge tokens; no xAI API key.",
   "keywords": [
     "deepseek-harness",
@@ -18,6 +18,9 @@
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
+  "bin": {
+    "dsh-llm-xai-oauth": "lib/login.js"
+  },
   "exports": {
     ".": {
       "types": "./lib/types/index.d.ts",

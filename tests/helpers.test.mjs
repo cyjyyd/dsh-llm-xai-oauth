@@ -83,6 +83,13 @@ test('resolveAdapterOptions defaults to the Grok subscription proxy', () => {
 })
 
 import { catalogModelFromListing, mergeXaiCatalog } from '../lib/adapter.js'
+import { explicitSearchPaths, searchLocalTokens } from '../lib/discover.js'
+import { bootstrapXaiOAuth } from '../lib/bootstrap.js'
+import { applyDshDefaultModel, upsertDefaultModelSection, settingsHasDefaultModel } from '../lib/dsh-defaults.js'
+import { formatLoginPrompt } from '../lib/login-flow.js'
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 test('catalogModelFromListing keeps grok-4.6 xhigh and grok-4.5 high-only', () => {
   const grok46 = catalogModelFromListing({
@@ -122,4 +129,191 @@ test('mergeXaiCatalog prefers the live listing over the static fallback', () => 
   )
   assert.equal(merged.map(model => model.id).join(','), 'grok-4.6,grok-4.5')
   assert.equal(merged[0]?.reasoningEfforts?.includes('xhigh'), true)
+})
+
+test('explicitSearchPaths covers grok-bridge, grok CLI, and common config dirs', () => {
+  const paths = explicitSearchPaths('/home/user')
+  assert.equal(paths.some(path => path.endsWith('.grok-bridge/auth.json')), true)
+  assert.equal(paths.some(path => path.endsWith('.grok/auth.json')), true)
+  assert.equal(paths.some(path => path.endsWith('.config/grok/auth.json')), true)
+})
+
+test('searchLocalTokens finds a grok-cli shaped file outside the two canonical paths', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-xai-search-'))
+  await mkdir(join(home, '.config', 'grok'), { recursive: true })
+  await writeFile(join(home, '.config', 'grok', 'auth.json'), JSON.stringify({
+    'https://auth.x.ai::user': {
+      key: 'found-token',
+      refresh_token: 'refresh',
+      expires_at: Date.now() + 60_000,
+    },
+  }))
+  const found = await searchLocalTokens({
+    authBase: 'https://auth.x.ai',
+    tokenPath: '/oauth2/token',
+    deviceCodePath: '/oauth2/device/code',
+    clientId: 'test',
+    scope: 'openid',
+    authFile: join(home, '.grok-bridge', 'auth.json'),
+    grokCliAuthFile: join(home, '.grok', 'auth.json'),
+    configFile: join(home, '.grok-bridge', 'config.json'),
+  }, home)
+  assert.equal(found?.accessToken, 'found-token')
+  assert.equal(found?.path.endsWith('.config/grok/auth.json'), true)
+})
+
+test('upsertDefaultModelSection inserts or replaces agent-default-model', () => {
+  const inserted = upsertDefaultModelSection('llm-pi-ai:\n  providers: {}\n', {
+    provider: 'xai',
+    model: 'grok-4.6',
+    reasoningEffort: 'high',
+  })
+  assert.match(inserted, /agent-default-model:\n  provider: xai\n  model: grok-4.6\n  reasoningEffort: high\n/)
+  const replaced = upsertDefaultModelSection(
+    'agent-default-model:\n  provider: deepseek-official\n  model: deepseek-v4-flash\nui-onboarding:\n  welcomeNoticeVersion: 1\n',
+    { provider: 'xai', model: 'grok-4.6', reasoningEffort: 'high' },
+  )
+  assert.match(replaced, /provider: xai/)
+  assert.doesNotMatch(replaced, /deepseek-official/)
+  assert.match(replaced, /ui-onboarding:/)
+  assert.equal(settingsHasDefaultModel(replaced, { provider: 'xai', model: 'grok-4.6' }), true)
+})
+
+test('bootstrap reuses a local token, skips login, and writes dsh defaults', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-xai-boot-'))
+  const authFile = join(home, 'auth.json')
+  await writeFile(authFile, JSON.stringify({
+    access_token: 'abc',
+    refresh_token: 'ref',
+    expires_at: Date.now() + 60_000,
+  }))
+  let loggedIn = false
+  const result = await bootstrapXaiOAuth({
+    authBase: 'https://auth.x.ai',
+    tokenPath: '/oauth2/token',
+    deviceCodePath: '/oauth2/device/code',
+    clientId: 'test',
+    scope: 'openid',
+    authFile,
+    grokCliAuthFile: join(home, 'missing.json'),
+    configFile: join(home, 'config.json'),
+  }, undefined, {
+    home,
+    interactive: false,
+    login: async () => {
+      loggedIn = true
+      throw new Error('login should not run')
+    },
+    applyDefault: async () => 'file',
+  })
+  assert.equal(result.tokens?.accessToken, 'abc')
+  assert.equal(result.loggedIn, false)
+  assert.equal(result.dsh, 'file')
+  assert.equal(loggedIn, false)
+})
+
+test('bootstrap starts device login when no token exists, then forces dsh defaults', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-xai-login-'))
+  let force
+  const result = await bootstrapXaiOAuth({
+    authBase: 'https://auth.x.ai',
+    tokenPath: '/oauth2/token',
+    deviceCodePath: '/oauth2/device/code',
+    clientId: 'test',
+    scope: 'openid',
+    authFile: join(home, 'auth.json'),
+    grokCliAuthFile: join(home, 'missing.json'),
+    configFile: join(home, 'config.json'),
+  }, undefined, {
+    home,
+    interactive: true,
+    login: async () => ({
+      accessToken: 'new',
+      refreshToken: 'r',
+      expiresAt: Date.now() + 60_000,
+      clientId: null,
+      source: 'grok-bridge',
+    }),
+    applyDefault: async (_ctx, shouldForce) => {
+      force = shouldForce
+      return 'file'
+    },
+  })
+  assert.equal(result.loggedIn, true)
+  assert.equal(result.tokens?.accessToken, 'new')
+  assert.equal(force, true)
+})
+
+test('bootstrap does not prompt when interactive is off and no token exists', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-xai-skip-'))
+  const result = await bootstrapXaiOAuth({
+    authBase: 'https://auth.x.ai',
+    tokenPath: '/oauth2/token',
+    deviceCodePath: '/oauth2/device/code',
+    clientId: 'test',
+    scope: 'openid',
+    authFile: join(home, 'auth.json'),
+    grokCliAuthFile: join(home, 'missing.json'),
+    configFile: join(home, 'config.json'),
+  }, undefined, {
+    home,
+    interactive: false,
+    login: async () => {
+      throw new Error('login should not run')
+    },
+  })
+  assert.equal(result.tokens, null)
+  assert.equal(result.loggedIn, false)
+  assert.match(result.reason ?? '', /no reusable SuperGrok token/)
+})
+
+test('formatLoginPrompt prints the verification URL and user code', () => {
+  const text = formatLoginPrompt({
+    deviceCode: 'd',
+    userCode: 'ABCD-1234',
+    verificationUri: 'https://auth.x.ai/device?code=ABCD-1234',
+    intervalSeconds: 5,
+    expiresInSeconds: 600,
+  })
+  assert.match(text, /https:\/\/auth.x.ai\/device/)
+  assert.match(text, /ABCD-1234/)
+})
+
+test('writeDshDefaultModelFile is covered by upsert helper round-trip', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-xai-settings-'))
+  const path = join(home, 'settings.yaml')
+  await writeFile(path, 'ssh-tui-subagent:\n  model: grok-4.5\n')
+  const next = upsertDefaultModelSection(await readFile(path, 'utf8'), {
+    provider: 'xai',
+    model: 'grok-4.6',
+    reasoningEffort: 'high',
+  })
+  assert.match(next, /ssh-tui-subagent:/)
+  assert.match(next, /agent-default-model:/)
+})
+
+test('applyDshDefaultModel switches a DeepSeek default to SuperGrok but leaves an xai section alone', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-home-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    await writeFile(join(home, 'settings.yaml'), 'agent-default-model:\n  provider: deepseek-official\n  model: deepseek-v4-flash\n')
+    assert.equal(await applyDshDefaultModel(undefined, {
+      provider: 'xai',
+      model: 'grok-4.6',
+      reasoningEffort: 'high',
+    }, { onlyIfUnset: true }), 'file')
+    assert.match(await readFile(join(home, 'settings.yaml'), 'utf8'), /provider: xai/)
+
+    await writeFile(join(home, 'settings.yaml'), 'agent-default-model:\n  provider: xai\n  model: grok-4.5\n  reasoningEffort: high\n')
+    assert.equal(await applyDshDefaultModel(undefined, {
+      provider: 'xai',
+      model: 'grok-4.6',
+      reasoningEffort: 'high',
+    }, { onlyIfUnset: true }), 'unchanged')
+    assert.match(await readFile(join(home, 'settings.yaml'), 'utf8'), /model: grok-4.5/)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+  }
 })
