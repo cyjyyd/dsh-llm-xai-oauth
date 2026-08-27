@@ -1,0 +1,12 @@
+node_modules/
+lib/
+*.log
+*.tgz
+.DS_Store
+coverage/
+.env
+.env.*
+
+# editor
+.vscode/
+.idea/

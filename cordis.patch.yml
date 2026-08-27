@@ -1,0 +1,6 @@
+# First-class xAI/Grok OAuth provider. Registers the `xai` LLM route so
+# `/model`, the Models page, and agent-default-model can select Grok the
+# same way they select DeepSeek official.
+- insert:
+    - id: llm-xai-oauth
+      name: dsh-llm-xai-oauth

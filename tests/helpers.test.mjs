@@ -1,0 +1,84 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { serializeRequest, reasoningEffort } from '../lib/serialize.js'
+import { mapFinishReason, mapUsage, translate } from '../lib/translate.js'
+import { normalizeTokens } from '../lib/oauth.js'
+import { resolveAdapterOptions } from '../lib/index.js'
+
+test('reasoningEffort maps max to xhigh and rejects unknown levels', () => {
+  assert.equal(reasoningEffort('high'), 'high')
+  assert.equal(reasoningEffort('max'), 'xhigh')
+  assert.throws(() => reasoningEffort('ultra'), /does not support/)
+})
+
+test('serializeRequest streams chat-completions with tools and effort', () => {
+  const body = serializeRequest({
+    provider: 'xai',
+    model: 'grok-4.6',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+    ],
+    tools: [{
+      name: 'bash',
+      description: 'run a command',
+      parameters: { type: 'object', properties: {} },
+    }],
+    reasoningEffort: 'high',
+  })
+  assert.equal(body.stream, true)
+  assert.equal(body.model, 'grok-4.6')
+  assert.equal(body.reasoning_effort, 'high')
+  assert.equal(body.tools?.[0]?.function.name, 'bash')
+  assert.deepEqual(body.messages[0], { role: 'user', content: 'hi' })
+})
+
+test('translate turns reasoning and tool-call SSE into harness chunks', async () => {
+  async function* payloads() {
+    yield JSON.stringify({
+      choices: [{ delta: { reasoning_content: 'think' } }],
+    })
+    yield JSON.stringify({
+      choices: [{
+        delta: {
+          tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"x":1}' } }],
+        },
+        finish_reason: 'tool_calls',
+      }],
+      usage: { prompt_tokens: 10, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 2 } },
+    })
+    yield '[DONE]'
+  }
+  const chunks = []
+  for await (const chunk of translate(payloads())) chunks.push(chunk)
+  assert.equal(chunks[0].type, 'block-start')
+  assert.equal(chunks.some(chunk => chunk.type === 'reasoning-delta'), true)
+  assert.equal(chunks.some(chunk => chunk.type === 'tool-call-delta'), true)
+  assert.equal(chunks.at(-1).reason.kind, 'tool-calls')
+  assert.equal(mapFinishReason('stop').kind, 'stop')
+  assert.equal(mapUsage({ prompt_tokens: 10, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 2 } }).inputTokens, 8)
+})
+
+test('normalizeTokens reads grok-bridge and grok-cli shapes', () => {
+  const bridge = normalizeTokens({
+    access_token: 'abc',
+    refresh_token: 'ref',
+    expires_at: Date.now() + 60_000,
+  }, 'grok-bridge')
+  assert.equal(bridge?.accessToken, 'abc')
+  const cli = normalizeTokens({
+    'https://auth.x.ai::user': {
+      key: 'tok',
+      refresh_token: 'r',
+      expires_at: 1787770000,
+    },
+  }, 'grok-cli')
+  assert.equal(cli?.accessToken, 'tok')
+  assert.ok((cli?.expiresAt ?? 0) > 1e12)
+})
+
+test('resolveAdapterOptions defaults to the Grok subscription proxy', () => {
+  const options = resolveAdapterOptions({})
+  assert.equal(options.baseURL, 'https://cli-chat-proxy.grok.com/v1')
+  assert.equal(options.models[0]?.id, 'grok-4.6')
+  assert.equal(options.defaults.reasoningEffort, 'high')
+})
