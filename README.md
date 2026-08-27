@@ -22,6 +22,8 @@ This is intentionally narrow. It does not replace the built-in xAI catalog card,
 
 Requires Node.js ≥ 22.19 and a DeepSeek Harness CLI (`dsh`) that can load profile bundles.
 
+On a remote SSH box, install this next to [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) so `/model` can switch onto SuperGrok without a browser.
+
 ```bash
 # any profile: tui / web / headless
 dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth

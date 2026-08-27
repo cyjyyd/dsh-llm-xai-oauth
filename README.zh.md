@@ -22,6 +22,8 @@ Harness 自带 DeepSeek 官方路由，以及通用的 `llm-pi-ai` 目录。目�
 
 需要 Node.js ≥ 22.19，以及能加载 profile bundle 的 `dsh` CLI。
 
+远程 SSH 机器上请和 [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) 一起装，这样 `/model` 能切到 SuperGrok，不必再走浏览器登录。
+
 ```bash
 dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
 dsh plugin --profile web add github:cyjyyd/dsh-llm-xai-oauth
