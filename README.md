@@ -2,7 +2,7 @@
 
 Use a SuperGrok / X Premium subscription as a **native DeepSeek Harness LLM provider**. No xAI API key. Reuses the OAuth tokens already on the machine.
 
-中文说明在下方。Companion TUI: [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui).
+中文：[README.zh.md](README.zh.md)。Companion TUI: [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui).
 
 ## What this is
 
