@@ -8,7 +8,7 @@ English: [README.md](README.md)。配套 TUI：[dsh-ssh-tui](https://github.com/
 
 Harness 自带 DeepSeek 官方路由，以及通用的 `llm-pi-ai` 目录。目录可以*展示* `xai`，但不能刷新 SuperGrok 的 OAuth token，也不能打 Grok 订阅代理。这个插件补上这一段：
 
-- 注册真正可调用的 `xai` 路由（`grok-4.6` / `grok-4.5` / `grok-4.3`）
+- 注册真正可调用的 `xai` 路由（`grok-4.6` / `grok-4.5`（订阅实时目录；静态回退仍含 grok-4.3））
 - 读取 `~/.grok-bridge/auth.json` 或 `~/.grok/auth.json`
 - 过期前 5 分钟自动 refresh
 - 用和 grok-bridge 相同的 Bearer + `x-grok-client-*` 头调用 `https://cli-chat-proxy.grok.com/v1/chat/completions`

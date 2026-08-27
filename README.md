@@ -8,7 +8,7 @@ Use a SuperGrok / X Premium subscription as a **native DeepSeek Harness LLM prov
 
 DeepSeek Harness already has an official DeepSeek route and a generic `llm-pi-ai` catalog. The catalog can *advertise* `xai`, but it cannot refresh a SuperGrok OAuth token or talk to the Grok subscription proxy. This plugin fills that gap:
 
-- Registers the live `xai` adapter route (`grok-4.6` / `grok-4.5` / `grok-4.3`)
+- Registers the live `xai` adapter route (`grok-4.6` / `grok-4.5`（订阅实时目录；静态回退仍含 grok-4.3）)
 - Reads `~/.grok-bridge/auth.json` or `~/.grok/auth.json`
 - Refreshes the access token five minutes before expiry
 - Calls `https://cli-chat-proxy.grok.com/v1/chat/completions` with the same Bearer + `x-grok-client-*` headers grok-bridge uses
@@ -85,6 +85,8 @@ Or pick the route at launch / in TUI:
 dsh --profile tui --provider xai --model grok-4.6
 dsh --profile headless "Reply with exactly: xai-harness-ok. Do not use tools."
 ```
+
+The plugin also queries `GET {baseURL}/models` with the SuperGrok OAuth token at startup. The live listing currently returns `grok-4.6` (off / low / medium / high / **xhigh**) and `grok-4.5` (off / low / medium / high). `/model` in dsh-ssh-tui reads that adapter catalog.
 
 Default catalog (advisory; the adapter still accepts a `grok-*` id the proxy serves):
 

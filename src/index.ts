@@ -17,6 +17,8 @@ import {
   DEFAULT_MAX_TOKENS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   XaiAdapter,
+  catalogModelFromListing,
+  mergeXaiCatalog,
 } from './adapter.js'
 import type { XaiCatalogModel, XaiConnectionOptions } from './adapter.js'
 import {
@@ -25,8 +27,10 @@ import {
   DEFAULT_UPSTREAM_BASE,
   defaultOAuthConfig,
   getAccessToken,
+  proxyDispatcher,
 } from './oauth.js'
 import type { RequestDefaults, XaiReasoningEffort } from './serialize.js'
+import { fetch as undiciFetch } from 'undici'
 
 export { XaiAdapter } from './adapter.js'
 export type { XaiAdapterOptions, XaiCatalogModel, XaiConnectionOptions } from './adapter.js'
@@ -187,15 +191,50 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
+  let liveCatalog: XaiCatalogModel[] | undefined
   const adapter = new XaiAdapter({
     options,
     resolveAccessToken,
     resolveAttachments: () => ctx.get('attachments'),
+    liveCatalog: () => liveCatalog,
   })
   // Do not registerConfigurableProviders('xai'): llm-pi-ai already advertises
   // the catalog key. This plugin owns the live adapter route instead, which is
   // what /model and agent-default-model dispatch through.
   const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
+  void refreshLiveCatalog().catch((error: unknown) => {
+    ctx.logger.warn('llm-xai-oauth: live SuperGrok catalog unavailable; using the static fallback')
+    ctx.logger.warn(error)
+  })
+
+  async function refreshLiveCatalog(): Promise<void> {
+    const connection = options()
+    const token = await resolveAccessToken()
+    const dispatcher = proxyDispatcher()
+    const response = await undiciFetch(`${connection.baseURL.replace(/\/$/u, '')}/models`, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: 'application/json',
+        'x-grok-client-version': connection.clientVersion,
+        'x-grok-client-mode': connection.clientMode,
+      },
+      signal: AbortSignal.timeout(15_000),
+      ...dispatcher === undefined ? {} : { dispatcher },
+    })
+    if (!response.ok) {
+      throw new Error(`xAI /models failed (HTTP ${response.status})`)
+    }
+    const payload = await response.json() as unknown
+    const rows = payload !== null && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)
+      ? (payload as { data: unknown[] }).data
+      : Array.isArray(payload) ? payload : []
+    const listed = rows
+      .map(catalogModelFromListing)
+      .filter((model): model is XaiCatalogModel => model !== undefined)
+    if (listed.length === 0) return
+    liveCatalog = mergeXaiCatalog(connection.models, listed)
+  }
   let registeredPolicy = options().retryPolicy
   const ensureRegistrationFacts = (): void => {
     const policy = options().retryPolicy
@@ -206,7 +245,7 @@ export function apply(ctx: Context, config: Config): void {
 
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source) => {
-      current = source
+      current = () => source() as Config
     },
     onChange: ensureRegistrationFacts,
   })

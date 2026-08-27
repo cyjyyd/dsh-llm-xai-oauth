@@ -43,6 +43,7 @@ export interface XaiCatalogModel {
   maxTokens?: number
   inputModalities?: ModelModality[]
   reasoningEfforts?: XaiReasoningEffort[]
+  defaultEffort?: XaiReasoningEffort
 }
 
 export interface XaiConnectionOptions {
@@ -61,6 +62,8 @@ export interface XaiAdapterOptions {
   options: () => XaiConnectionOptions
   resolveAccessToken: (connection: XaiConnectionOptions) => Promise<string>
   resolveAttachments?: () => AttachmentStore | undefined
+  /** Live SuperGrok catalog; when present it outranks the static fallback. */
+  liveCatalog?: () => readonly XaiCatalogModel[] | undefined
 }
 
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
@@ -84,6 +87,86 @@ function modelInfo(provider: string, model: XaiCatalogModel): LlmModelInfo {
     ...model.description === undefined ? {} : { description: model.description },
     inputModalities: [...(model.inputModalities ?? ['text'])],
   }
+}
+
+const KNOWN_EFFORTS = new Set<XaiReasoningEffort>(['off', 'low', 'medium', 'high', 'xhigh'])
+
+function asEffort(value: unknown): XaiReasoningEffort | undefined {
+  return typeof value === 'string' && KNOWN_EFFORTS.has(value as XaiReasoningEffort)
+    ? value as XaiReasoningEffort
+    : undefined
+}
+
+function numberField(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+/** Parse one SuperGrok / OpenAI-compatible model listing into a catalog entry. */
+export function catalogModelFromListing(value: unknown): XaiCatalogModel | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const id = stringField(record.id) ?? stringField(record.model)
+  if (id === undefined) return undefined
+  const effortsRaw = Array.isArray(record.reasoning_efforts) ? record.reasoning_efforts : []
+  const efforts: XaiReasoningEffort[] = []
+  let listedDefault: XaiReasoningEffort | undefined
+  for (const item of effortsRaw) {
+    if (typeof item === 'string') {
+      const effort = asEffort(item)
+      if (effort !== undefined && !efforts.includes(effort)) efforts.push(effort)
+      continue
+    }
+    if (item === null || typeof item !== 'object') continue
+    const entry = item as Record<string, unknown>
+    const effort = asEffort(entry.id) ?? asEffort(entry.value)
+    if (effort === undefined) continue
+    if (!efforts.includes(effort)) efforts.push(effort)
+    if (entry.default === true) listedDefault = effort
+  }
+  if (efforts.length > 0 && !efforts.includes('off')) efforts.unshift('off')
+  const defaultEffort = listedDefault
+    ?? asEffort(record.reasoning_effort)
+    ?? (efforts.includes('high') ? 'high' : efforts.find(effort => effort !== 'off'))
+  return {
+    id,
+    ...stringField(record.name) === undefined ? {} : { name: stringField(record.name) },
+    ...stringField(record.description) === undefined ? {} : { description: stringField(record.description) },
+    ...numberField(record.context_window) === undefined ? {} : { contextWindow: numberField(record.context_window) },
+    ...numberField(record.max_tokens) === undefined && numberField(record.max_output_tokens) === undefined
+      ? {}
+      : { maxTokens: numberField(record.max_tokens) ?? numberField(record.max_output_tokens) },
+    inputModalities: ['text', 'image'],
+    ...efforts.length === 0 ? {} : { reasoningEfforts: efforts },
+    ...defaultEffort === undefined ? {} : { defaultEffort },
+  }
+}
+
+/** Merge a live `/models` listing over the static fallback catalog. */
+export function mergeXaiCatalog(
+  fallback: readonly XaiCatalogModel[],
+  listed: readonly XaiCatalogModel[],
+): XaiCatalogModel[] {
+  if (listed.length === 0) return [...fallback]
+  const byId = new Map<string, XaiCatalogModel>()
+  for (const model of listed) byId.set(model.id, model)
+  for (const model of fallback) {
+    const live = byId.get(model.id)
+    if (live === undefined) continue
+    byId.set(model.id, {
+      ...model,
+      ...live,
+      reasoningEfforts: live.reasoningEfforts ?? model.reasoningEfforts,
+      defaultEffort: live.defaultEffort ?? model.defaultEffort,
+      contextWindow: live.contextWindow ?? model.contextWindow,
+      maxTokens: live.maxTokens ?? model.maxTokens,
+      name: live.name ?? model.name,
+    })
+  }
+  return [...byId.values()]
 }
 
 function collectImageRefs(blocks: readonly ContentBlock[], refs: Map<string, ImageAttachmentRef>): void {
@@ -134,8 +217,14 @@ export class XaiAdapter extends LlmAdapter {
     return this.config.options().retryPolicy
   }
 
+  private catalog(): readonly XaiCatalogModel[] {
+    const live = this.config.liveCatalog?.()
+    const fallback = this.config.options().models
+    return live === undefined || live.length === 0 ? fallback : live
+  }
+
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve(this.config.options().models.map(model => modelInfo(provider, model)))
+    return Promise.resolve(this.catalog().map(model => modelInfo(provider, model)))
   }
 
   override resolveModel(
@@ -144,10 +233,12 @@ export class XaiAdapter extends LlmAdapter {
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
     const connection = this.config.options()
-    const configured = connection.models.find(entry => entry.id === model)
+    const configured = this.catalog().find(entry => entry.id === model)
     const contextWindow = configured?.contextWindow ?? connection.defaultContextWindow
-    const efforts = configured?.reasoningEfforts ?? ['off', 'low', 'medium', 'high']
-    const defaultEffort = connection.defaults.reasoningEffort ?? 'high'
+    const efforts = configured?.reasoningEfforts ?? ['off', 'low', 'medium', 'high', 'xhigh']
+    const defaultEffort = configured?.defaultEffort
+      ?? connection.defaults.reasoningEffort
+      ?? 'high'
     const selected = efforts.includes(defaultEffort) ? defaultEffort : efforts[0]
     return Promise.resolve({
       ...configured === undefined

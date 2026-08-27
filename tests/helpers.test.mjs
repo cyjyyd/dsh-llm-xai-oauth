@@ -4,7 +4,6 @@ import { serializeRequest, reasoningEffort } from '../lib/serialize.js'
 import { mapFinishReason, mapUsage, translate } from '../lib/translate.js'
 import { normalizeTokens } from '../lib/oauth.js'
 import { resolveAdapterOptions } from '../lib/index.js'
-
 test('reasoningEffort maps max to xhigh and rejects unknown levels', () => {
   assert.equal(reasoningEffort('high'), 'high')
   assert.equal(reasoningEffort('max'), 'xhigh')
@@ -81,4 +80,46 @@ test('resolveAdapterOptions defaults to the Grok subscription proxy', () => {
   assert.equal(options.baseURL, 'https://cli-chat-proxy.grok.com/v1')
   assert.equal(options.models[0]?.id, 'grok-4.6')
   assert.equal(options.defaults.reasoningEffort, 'high')
+})
+
+import { catalogModelFromListing, mergeXaiCatalog } from '../lib/adapter.js'
+
+test('catalogModelFromListing keeps grok-4.6 xhigh and grok-4.5 high-only', () => {
+  const grok46 = catalogModelFromListing({
+    id: 'grok-4.6',
+    name: 'Grok 4.6',
+    context_window: 500000,
+    reasoning_effort: 'high',
+    reasoning_efforts: [
+      { id: 'xhigh', value: 'xhigh', default: false },
+      { id: 'high', value: 'high', default: true },
+      { id: 'medium', value: 'medium' },
+      { id: 'low', value: 'low' },
+    ],
+  })
+  assert.equal(grok46?.id, 'grok-4.6')
+  assert.deepEqual(grok46?.reasoningEfforts, ['off', 'xhigh', 'high', 'medium', 'low'])
+  assert.equal(grok46?.defaultEffort, 'high')
+
+  const grok45 = catalogModelFromListing({
+    id: 'grok-4.5',
+    name: 'Grok 4.5',
+    context_window: 500000,
+    reasoning_efforts: [
+      { id: 'high', default: true },
+      { id: 'medium' },
+      { id: 'low' },
+    ],
+  })
+  assert.equal(grok45?.reasoningEfforts?.includes('xhigh'), false)
+  assert.equal(grok45?.defaultEffort, 'high')
+})
+
+test('mergeXaiCatalog prefers the live listing over the static fallback', () => {
+  const merged = mergeXaiCatalog(
+    [{ id: 'grok-4.6', name: 'Grok 4.6', reasoningEfforts: ['off', 'high'] }, { id: 'grok-4.3', name: 'Grok 4.3' }],
+    [{ id: 'grok-4.6', name: 'Grok 4.6', reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh'], defaultEffort: 'high' }, { id: 'grok-4.5', name: 'Grok 4.5' }],
+  )
+  assert.equal(merged.map(model => model.id).join(','), 'grok-4.6,grok-4.5')
+  assert.equal(merged[0]?.reasoningEfforts?.includes('xhigh'), true)
 })
