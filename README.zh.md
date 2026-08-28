@@ -27,9 +27,9 @@ Harness 自带 DeepSeek 官方路由，以及通用的 `llm-pi-ai` 目录。目�
 远程 SSH 机器上请和 [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) 一起装，这样 `/model` 能切到 SuperGrok，不必再走浏览器登录。
 
 ```bash
-dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
-dsh plugin --profile web add github:cyjyyd/dsh-llm-xai-oauth
-dsh plugin --profile headless add github:cyjyyd/dsh-llm-xai-oauth
+dsh plugin --profile tui add dsh-llm-xai-oauth
+dsh plugin --profile web add dsh-llm-xai-oauth
+dsh plugin --profile headless add dsh-llm-xai-oauth
 ```
 
 本地仓库：
@@ -38,6 +38,12 @@ dsh plugin --profile headless add github:cyjyyd/dsh-llm-xai-oauth
 git clone https://github.com/cyjyyd/dsh-llm-xai-oauth.git
 cd dsh-llm-xai-oauth
 bash scripts/install.sh tui
+```
+
+仍可用 GitHub 源，不必走 npm：
+
+```bash
+dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
 ```
 
 bundle patch 会插入 `id: llm-xai-oauth`。确认：

@@ -21,6 +21,9 @@
   "bin": {
     "dsh-llm-xai-oauth": "lib/login.js"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./lib/types/index.d.ts",
@@ -51,7 +54,11 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "login": "npm run build && node lib/login.js",
     "clean": "rm -rf lib",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck",
+    "install:dsh": "bash scripts/install.sh",
+    "install:npm": "bash scripts/install-npm.sh"
   },
   "engines": {
     "node": ">=22.19"

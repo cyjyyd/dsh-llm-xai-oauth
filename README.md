@@ -27,10 +27,10 @@ Requires Node.js ≥ 22.19 and a DeepSeek Harness CLI (`dsh`) that can load prof
 On a remote SSH box, install this next to [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) so `/model` can switch onto SuperGrok without a browser.
 
 ```bash
-# any profile: tui / web / headless
-dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
-dsh plugin --profile web add github:cyjyyd/dsh-llm-xai-oauth
-dsh plugin --profile headless add github:cyjyyd/dsh-llm-xai-oauth
+# any profile: tui / web / headless. The CLI pulls npm.
+dsh plugin --profile tui add dsh-llm-xai-oauth
+dsh plugin --profile web add dsh-llm-xai-oauth
+dsh plugin --profile headless add dsh-llm-xai-oauth
 ```
 
 Local checkout:
@@ -39,6 +39,12 @@ Local checkout:
 git clone https://github.com/cyjyyd/dsh-llm-xai-oauth.git
 cd dsh-llm-xai-oauth
 bash scripts/install.sh tui
+```
+
+GitHub still works if you want a checkout instead of the registry:
+
+```bash
+dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
 ```
 
 The bundle patch inserts `id: llm-xai-oauth`. Confirm with:
