@@ -61,6 +61,8 @@ export interface XaiConnectionOptions {
 export interface XaiAdapterOptions {
   options: () => XaiConnectionOptions
   resolveAccessToken: (connection: XaiConnectionOptions) => Promise<string>
+  /** Called after HTTP 401/403 so the next attempt can use a fresh token. */
+  refreshAccessToken?: (connection: XaiConnectionOptions) => Promise<string>
   resolveAttachments?: () => AttachmentStore | undefined
   /** Live SuperGrok catalog; when present it outranks the static fallback. */
   liveCatalog?: () => readonly XaiCatalogModel[] | undefined
@@ -255,21 +257,22 @@ export class XaiAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const connection = this.config.options()
-    const accessToken = await this.config.resolveAccessToken(connection)
+    let accessToken = await this.config.resolveAccessToken(connection)
     const consumer = new AbortController()
     const upstream = options.signal === undefined
       ? consumer.signal
       : AbortSignal.any([options.signal, consumer.signal])
     using watchdog = idleWatchdog(upstream, connection.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE)
     const images = await this.resolveImages(options, connection)
-    const iterator = this.request(
+    const startRequest = (token: string) => this.request(
       options,
       watchdog.signal,
       connection,
-      accessToken,
+      token,
       images,
       () => { watchdog.pulse() },
-    )[Symbol.asyncIterator]()
+    )
+    let iterator = startRequest(accessToken)[Symbol.asyncIterator]()
     let exhausted = false
     try {
       while (true) {
@@ -281,6 +284,37 @@ export class XaiAdapter extends LlmAdapter {
         yield result.value
       }
     } catch (error: unknown) {
+      if (
+        error instanceof LlmError
+        && this.config.refreshAccessToken !== undefined
+        && (error.code === 'AUTH' || error.failure.status === 401 || error.failure.status === 403)
+      ) {
+        accessToken = await this.config.refreshAccessToken(connection)
+        iterator = startRequest(accessToken)[Symbol.asyncIterator]()
+        try {
+          while (true) {
+            const result = await watchdog.next(iterator)
+            if (result.done) {
+              exhausted = true
+              return
+            }
+            yield result.value
+          }
+        } catch (retryError: unknown) {
+          if (timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE) !== undefined) {
+            throw new LlmError(
+              `xAI stream idle timeout after ${connection.streamIdleTimeoutMs}ms`,
+              'TIMEOUT',
+              { cause: retryError },
+            )
+          }
+          if (options.signal?.aborted) {
+            throw new LlmError('xAI request aborted by caller', 'ABORTED', { cause: retryError })
+          }
+          if (retryError instanceof LlmError) throw retryError
+          throw new LlmError(`xAI API stream from ${connection.baseURL} failed`, 'TRANSPORT', { cause: retryError })
+        }
+      }
       if (timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE) !== undefined) {
         throw new LlmError(
           `xAI stream idle timeout after ${connection.streamIdleTimeoutMs}ms`,

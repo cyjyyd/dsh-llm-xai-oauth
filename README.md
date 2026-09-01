@@ -1,93 +1,126 @@
 # dsh-llm-xai-oauth
 
-Use a SuperGrok / X Premium subscription as a **native DeepSeek Harness LLM provider**. No xAI API key. Reuses the OAuth tokens already on the machine.
+Use a SuperGrok / X Premium subscription as a **native DeepSeek Harness LLM provider**. No xAI API key.
 
-中文：[README.zh.md](README.zh.md)。Companion TUI: [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui).
+中文：[README.zh.md](README.zh.md). Companion TUI: [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui).
 
-## What this is
+## Three facts that matter
 
-DeepSeek Harness already has an official DeepSeek route and a generic `llm-pi-ai` catalog. The catalog can *advertise* `xai`, but it cannot refresh a SuperGrok OAuth token or talk to the Grok subscription proxy. This plugin fills that gap:
+1. **This is subscription OAuth, not an API key.** After install, dsh talks to `https://cli-chat-proxy.grok.com` with the access token in `~/.grok-bridge/auth.json`.
+2. **The access token lasts about an hour.** While dsh is running, the plugin refreshes five minutes before expiry and again on HTTP 401. If dsh is not running, that refresh does not happen.
+3. **So you need a refresher that is not the dsh process.** Use `dsh-llm-xai-oauth daemon`. Do not expect the TUI or a headless one-shot to keep the token alive overnight.
 
-- Registers the live `xai` adapter route (`grok-4.6` / `grok-4.5`（订阅实时目录；静态回退仍含 grok-4.3）)
-- Searches `~/.grok-bridge/auth.json`, `~/.grok/auth.json`, and a small set of `~/.config` / `~/.local/share` locations
-- If nothing reusable is found, starts the xAI device-code login on a TTY and writes `~/.grok-bridge/auth.json`
-- Once a usable token exists, sets `agent-default-model` to `xai` / `grok-4.6` unless that section is already on `xai`
-- Refreshes the access token five minutes before expiry
-- Calls `https://cli-chat-proxy.grok.com/v1/chat/completions` with the same Bearer + `x-grok-client-*` headers grok-bridge uses
-- Streams text, reasoning, tool calls, and usage through the same harness seam as DeepSeek official
+`/usage` returning 401, then chat also 401, almost always means: the token expired and nothing was refreshing it.
 
-`/model`, the Models page, and `agent-default-model` then treat Grok like any other provider.
+## Setup in five minutes
 
-On start the plugin first searches the machine for a reusable token. If none is found and the process has a TTY, it runs the xAI device-code login, then writes `agent-default-model` so dsh uses SuperGrok.
+You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`). On a remote SSH box, install this next to [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) in the same profile.
 
-## Install
-
-Requires Node.js ≥ 22.19 and a DeepSeek Harness CLI (`dsh`) that can load profile bundles.
-
-On a remote SSH box, install this next to [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) so `/model` can switch onto SuperGrok without a browser.
+### 1. Add the plugin to a profile
 
 ```bash
-# any profile: tui / web / headless. The CLI pulls npm.
 dsh plugin --profile tui add dsh-llm-xai-oauth
-dsh plugin --profile web add dsh-llm-xai-oauth
 dsh plugin --profile headless add dsh-llm-xai-oauth
 ```
 
-Local checkout:
+Web UI as well, if you use it:
 
 ```bash
-git clone https://github.com/cyjyyd/dsh-llm-xai-oauth.git
-cd dsh-llm-xai-oauth
-bash scripts/install.sh tui
+dsh plugin --profile web add dsh-llm-xai-oauth
 ```
 
-GitHub still works if you want a checkout instead of the registry:
-
-```bash
-dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
-```
-
-The bundle patch inserts `id: llm-xai-oauth`. Confirm with:
+Confirm the bundle landed:
 
 ```bash
 dsh --profile tui --dump-config | grep llm-xai-oauth
 ```
 
-## Login
+You want `id: llm-xai-oauth`. Without that line, `/model` will not have a live SuperGrok route.
 
-The plugin does this itself when dsh starts:
-
-1. Search the machine for a reusable SuperGrok token (grok-bridge, Grok CLI, then common config dirs).
-2. If none is found and the process has a TTY, print the device-code URL / user code and wait for `auth.x.ai`.
-3. Write `~/.grok-bridge/auth.json` (`0600`) and set `$DSH_HOME/settings.yaml` `agent-default-model` to `xai` / `grok-4.6` if that section is not already on `xai`. A later login always writes the SuperGrok default.
-
-If grok-bridge or the official Grok CLI already logged in, step 1 succeeds and **no browser dance runs**. Headless / CI hosts without a TTY skip the prompt; set `DSH_XAI_OAUTH_NO_LOGIN=1` to skip it even on a TTY.
-
-To log in ahead of time, from a machine that can open `auth.x.ai`:
+A local checkout / GitHub source still works:
 
 ```bash
+git clone https://github.com/cyjyyd/dsh-llm-xai-oauth.git
 cd dsh-llm-xai-oauth
-npm install
-npm run login
-# force a new device-code even when a token already exists:
-node lib/login.js --force
+bash scripts/install.sh tui
+
+# or
+dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
 ```
 
-That starts the xAI device-code flow, writes `~/.grok-bridge/auth.json` (`0600`), and later requests refresh through `https://auth.x.ai/oauth2/token`.
+### 2. Log in once (from a machine that can open a browser)
 
-Override client / endpoints only when xAI changes them:
+If grok-bridge or the official Grok CLI already left `~/.grok-bridge/auth.json` or `~/.grok/auth.json` on this machine, **this step reuses it and does not open a browser**.
 
-| Env | Default |
-| --- | --- |
-| `GROK_OAUTH_CLIENT_ID` | `b1a00492-073a-47ea-816f-4c329264a828` |
-| `GROK_OAUTH_SCOPE` | `openid profile email offline_access grok-cli:access api:access` |
-| `GROK_OAUTH_BASE` | `https://auth.x.ai` |
-| `GROK_UPSTREAM_BASE` | `https://cli-chat-proxy.grok.com/v1` |
-| `HTTPS_PROXY` | honored for both refresh and chat |
-| `DSH_XAI_OAUTH_NO_LOGIN` | skip the startup device-code prompt |
-| `GROK_BRIDGE_NO_BROWSER` | print the URL instead of opening a browser |
+Otherwise, from a terminal that can open `auth.x.ai`:
 
-## Use it
+```bash
+npx dsh-llm-xai-oauth login
+# force a new device-code even when a token already exists:
+npx dsh-llm-xai-oauth login --force
+```
+
+The CLI prints a URL and a user code. Authorize SuperGrok / X Premium in the browser. On success it writes:
+
+- token: `~/.grok-bridge/auth.json` (`0600`)
+- dsh default model: `$DSH_HOME/settings.yaml` `agent-default-model` → `xai` / `grok-4.6`  
+  (if that section is already `xai`, your grok model and effort are left alone)
+
+Headless / CI hosts without a TTY skip the prompt. Set `DSH_XAI_OAUTH_NO_LOGIN=1` to skip it even on a TTY.
+
+Check remaining lifetime:
+
+```bash
+npx dsh-llm-xai-oauth status
+```
+
+### 3. Keep the token fresh (this is not dsh)
+
+Access tokens are short. A TUI, headless job, or cron that starts after expiry will read a dead token; `/usage` and chat then 401.
+
+**Recommended: a user systemd unit**
+
+```bash
+npx dsh-llm-xai-oauth daemon --install
+```
+
+That writes `~/.config/systemd/user/dsh-llm-xai-oauth.service` and `enable --now`. The process re-reads `auth.json` about once a minute and refreshes five minutes before expiry. dsh does not need to be running.
+
+No systemd, or you do not want a user unit:
+
+```bash
+# foreground
+npx dsh-llm-xai-oauth daemon
+
+# or cron every 20 minutes (no-op while the token is still valid)
+*/20 * * * * npx --yes dsh-llm-xai-oauth refresh >/tmp/dsh-xai-refresh.log 2>&1
+```
+
+Remove the user unit:
+
+```bash
+npx dsh-llm-xai-oauth daemon --uninstall
+```
+
+Refresh once by hand:
+
+```bash
+npx dsh-llm-xai-oauth refresh
+npx dsh-llm-xai-oauth refresh --force
+```
+
+### 4. Run one SuperGrok turn
+
+```bash
+grep -A3 agent-default-model ~/.dsh/settings.yaml
+
+dsh --profile tui --provider xai --model grok-4.6
+dsh --profile headless "Reply with exactly: xai-harness-ok. Do not use tools."
+```
+
+In [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui): `/model` picks Grok; `/usage` reads the SuperGrok weekly remaining quota. The TUI now refreshes a due token before `/usage`, and on 401 it force-refreshes once and retries. **That covers “I opened the TUI just as the token expired”. It does not cover “the machine slept overnight with no refresher”.** Step 3 is that refresher.
+
+## Switching models later
 
 ```yaml
 # $DSH_HOME/settings.yaml
@@ -97,16 +130,7 @@ agent-default-model:
   reasoningEffort: high
 ```
 
-Or pick the route at launch / in TUI:
-
-```bash
-dsh --profile tui --provider xai --model grok-4.6
-dsh --profile headless "Reply with exactly: xai-harness-ok. Do not use tools."
-```
-
-The plugin also queries `GET {baseURL}/models` with the SuperGrok OAuth token at startup. The live listing currently returns `grok-4.6` (off / low / medium / high / **xhigh**) and `grok-4.5` (off / low / medium / high). `/model` in dsh-ssh-tui reads that adapter catalog.
-
-Default catalog (advisory; the adapter still accepts a `grok-*` id the proxy serves):
+Or pass `--provider` / `--model`, or use `/model` in the TUI. At startup the plugin calls `GET {baseURL}/models` with the current token; `/model` prefers that live catalog (currently `grok-4.6` with xhigh, `grok-4.5` up to high). The static fallback still lists `grok-4.3`.
 
 | Model | Context | Output cap | Reasoning efforts |
 | --- | --- | --- | --- |
@@ -116,27 +140,53 @@ Default catalog (advisory; the adapter still accepts a `grok-*` id the proxy ser
 
 `max` in a DeepSeek-style picker maps to `xhigh`.
 
-Optional plugin settings live under `llm-xai-oauth:` (`baseURL`, `reasoningEffort`, `models`, retry / idle timeout). Change them without restarting; the next request re-resolves.
+Optional plugin settings live under `llm-xai-oauth:` in `$DSH_HOME/settings.yaml` (`baseURL`, `reasoningEffort`, `models`, retry / idle timeout). Change them without restarting; the next request re-resolves.
+
+## 401 / expiry
+
+```bash
+npx dsh-llm-xai-oauth status
+ls -l ~/.grok-bridge/auth.json
+systemctl --user status dsh-llm-xai-oauth.service
+journalctl --user -u dsh-llm-xai-oauth.service -n 50
+```
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `/usage` or chat HTTP 401 | access token expired, nothing refreshed it | `refresh --force`, then install the daemon |
+| status says `no refresh_token` | truncated file / not an OAuth login | `login --force` |
+| dump-config has no `llm-xai-oauth` | plugin is not in this profile | repeat step 1 |
+| token exists but dsh still uses DeepSeek | `agent-default-model` is not `xai` | `/model`, or edit settings.yaml |
+| `daemon --install` fails | no user systemd / linger | use cron, or `loginctl enable-linger $USER` |
+
+`HTTPS_PROXY` / `HTTP_PROXY` apply to login, refresh, and chat.
+
+Override client / endpoints only when xAI changes them:
+
+| Env | Default |
+| --- | --- |
+| `GROK_OAUTH_CLIENT_ID` | `b1a00492-073a-47ea-816f-4c329264a828` |
+| `GROK_OAUTH_SCOPE` | `openid profile email offline_access grok-cli:access api:access` |
+| `GROK_OAUTH_BASE` | `https://auth.x.ai` |
+| `GROK_UPSTREAM_BASE` | `https://cli-chat-proxy.grok.com/v1` |
+| `DSH_XAI_OAUTH_NO_LOGIN` | skip the startup device-code prompt |
+| `GROK_BRIDGE_NO_BROWSER` | print the URL instead of opening a browser |
 
 ## What it is not
 
-- Not an xAI API-key provider. Metered `api.x.ai` stays on the generic catalog if you ever add an API key there.
-- Not a Codex / Claude / Copilot aggregator. Those belong in other plugins.
-- Not a Web “one-click login” settings card. Device login is CLI / TTY; token reuse is the point for SSH / headless machines.
-- Does not register `registerConfigurableProviders('xai')`, because `llm-pi-ai` already advertises that catalog key. This package owns the **live adapter route**.
+- Not an xAI API-key provider. Metered `api.x.ai` stays on the generic catalog.
+- Not a Codex / Claude / Copilot aggregator.
+- Not a Web “one-click login” settings card. Device login is CLI / TTY.
+- Does not `registerConfigurableProviders('xai')`; `llm-pi-ai` already owns that catalog key. This package owns the **live adapter route**.
 
 ## Layout
 
 ```text
 src/index.ts        Cordis plugin: search / login / register the xai route
+src/cli.ts          login / status / refresh / daemon
 src/bootstrap.ts    local token search, device login, dsh default model
-src/discover.ts     bounded home/config token search
-src/login-flow.ts   xAI device-code prompt
-src/dsh-defaults.ts write agent-default-model
-src/adapter.ts      fetch + SSE chat-completions adapter
 src/oauth.ts        load / refresh / device-code
-src/serialize.ts    harness messages → Grok wire body
-src/translate.ts    SSE → harness StreamChunks
+src/adapter.ts      fetch + SSE chat-completions adapter (retries once on 401)
 cordis.patch.yml    profile bundle insert
 ```
 

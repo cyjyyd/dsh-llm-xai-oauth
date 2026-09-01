@@ -298,12 +298,14 @@ test('applyDshDefaultModel switches a DeepSeek default to SuperGrok but leaves a
   process.env.DSH_HOME = home
   try {
     await writeFile(join(home, 'settings.yaml'), 'agent-default-model:\n  provider: deepseek-official\n  model: deepseek-v4-flash\n')
+    // A user-owned section (any provider) is left alone under onlyIfUnset:
+    // flipping a DeepSeek default back to Grok would clobber the user's switch.
     assert.equal(await applyDshDefaultModel(undefined, {
       provider: 'xai',
       model: 'grok-4.6',
       reasoningEffort: 'high',
-    }, { onlyIfUnset: true }), 'file')
-    assert.match(await readFile(join(home, 'settings.yaml'), 'utf8'), /provider: xai/)
+    }, { onlyIfUnset: true }), 'unchanged')
+    assert.match(await readFile(join(home, 'settings.yaml'), 'utf8'), /provider: deepseek-official/)
 
     await writeFile(join(home, 'settings.yaml'), 'agent-default-model:\n  provider: xai\n  model: grok-4.5\n  reasoningEffort: high\n')
     assert.equal(await applyDshDefaultModel(undefined, {
@@ -316,4 +318,49 @@ test('applyDshDefaultModel switches a DeepSeek default to SuperGrok but leaves a
     if (previous === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previous
   }
+})
+
+import { tokenNeedsRefresh } from '../lib/oauth.js'
+import { runRefreshDaemon } from '../lib/cli.js'
+
+test('tokenNeedsRefresh treats expired and skew-window tokens as due', () => {
+  const now = 1_000_000_000_000
+  const base = {
+    accessToken: 'a',
+    refreshToken: 'r',
+    expiresAt: now + 60_000,
+    clientId: null,
+    source: 'grok-bridge',
+  }
+  assert.equal(tokenNeedsRefresh(base, now), true)
+  assert.equal(tokenNeedsRefresh({ ...base, expiresAt: now + 10 * 60 * 1000 }, now), false)
+  assert.equal(tokenNeedsRefresh({ ...base, refreshToken: null }, now), false)
+  assert.equal(tokenNeedsRefresh({ ...base, expiresAt: now - 1 }, now), true)
+})
+
+test('refresh daemon idles when the access token is still valid', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-xai-daemon-'))
+  const authFile = join(home, 'auth.json')
+  await writeFile(authFile, JSON.stringify({
+    access_token: 'fresh',
+    refresh_token: 'ref',
+    expires_at: Date.now() + 60 * 60 * 1000,
+  }))
+  const logs = []
+  await runRefreshDaemon({
+    once: true,
+    log: (line) => logs.push(line),
+    config: {
+      authBase: 'https://auth.x.ai',
+      tokenPath: '/oauth2/token',
+      deviceCodePath: '/oauth2/device/code',
+      clientId: 'test',
+      scope: 'openid',
+      authFile,
+      grokCliAuthFile: join(home, 'missing.json'),
+      configFile: join(home, 'config.json'),
+    },
+  })
+  assert.equal(logs.some(line => line.includes('watching')), true)
+  assert.equal(logs.some(line => line.includes('idle')), true)
 })

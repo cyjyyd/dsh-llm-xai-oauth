@@ -31,6 +31,7 @@ import {
   DEFAULT_UPSTREAM_BASE,
   defaultOAuthConfig,
   getAccessToken,
+  refreshAccessTokenAfterUnauthorized,
   proxyDispatcher,
 } from './oauth.js'
 import type { XaiReasoningEffort } from './serialize.js'
@@ -44,9 +45,13 @@ export {
   DEFAULT_SCOPE,
   DEFAULT_UPSTREAM_BASE,
   getAccessToken,
+  refreshAccessTokenAfterUnauthorized,
+  refreshStoredTokens,
+  tokenNeedsRefresh,
   loadCanonicalTokens,
   loadStoredTokens,
 } from './oauth.js'
+export { main as cliMain, runRefreshDaemon } from './cli.js'
 export { bootstrapXaiOAuth } from './bootstrap.js'
 export { searchLocalTokens } from './discover.js'
 export { applyDshDefaultModel, defaultModelSelection } from './dsh-defaults.js'
@@ -206,10 +211,24 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
   }
 
+  const refreshAccessToken = async (): Promise<string> => {
+    await ready
+    try {
+      return await refreshAccessTokenAfterUnauthorized(oauth)
+    } catch (error) {
+      throw new LlmError(
+        error instanceof Error ? error.message : 'xAI OAuth token refresh failed',
+        'MISSING_CREDENTIAL',
+        { cause: error },
+      )
+    }
+  }
+
   let liveCatalog: XaiCatalogModel[] | undefined
   const adapter = new XaiAdapter({
     options,
     resolveAccessToken,
+    refreshAccessToken,
     resolveAttachments: () => ctx.get('attachments'),
     liveCatalog: () => liveCatalog,
   })

@@ -75,6 +75,12 @@ export function upsertDefaultModelSection(document: string, selection: DshDefaul
   return joined.endsWith('\n') ? joined : `${joined}\n`
 }
 
+/** True when the settings file already carries any `agent-default-model` section. */
+export function settingsHasAnyDefaultModel(document: string): boolean {
+  const lines = document.split(/\n/u)
+  return lines.some(line => line === 'agent-default-model:' || line.startsWith('agent-default-model:'))
+}
+
 export function settingsHasDefaultModel(document: string, selection: DshDefaultModel): boolean {
   const lines = document.split(/\n/u)
   const start = lines.findIndex(line => line === 'agent-default-model:' || line.startsWith('agent-default-model:'))
@@ -119,7 +125,14 @@ export async function applyDshDefaultModel(
   if (service !== undefined && settings !== undefined) {
     const current = service.currentSelection()
     if (current.provider === selection.provider && current.model === selection.model) return 'unchanged'
-    if (onlyIfUnset && current.provider === selection.provider) return 'unchanged'
+    if (onlyIfUnset) {
+      // A user-owned section (whatever provider it names) means the user
+      // already picked a default explicitly; do not flip it back to Grok.
+      const doc = (settings as unknown as { document?: unknown }).document
+      const hasUserSection = doc !== null && typeof doc === 'object' && !Array.isArray(doc)
+        && (doc as Record<string, unknown>)['agent-default-model'] !== undefined
+      if (hasUserSection) return 'unchanged'
+    }
     await service.saveSelection({
       provider: selection.provider,
       model: selection.model,
@@ -137,18 +150,7 @@ export async function applyDshDefaultModel(
     existing = ''
   }
   if (settingsHasDefaultModel(existing, selection)) return 'unchanged'
-  if (onlyIfUnset) {
-    const lines = existing.split(/\n/u)
-    const start = lines.findIndex(line => line === 'agent-default-model:' || line.startsWith('agent-default-model:'))
-    if (start !== -1) {
-      for (let index = start + 1; index < lines.length; index += 1) {
-        const line = lines[index] ?? ''
-        if (line !== '' && !/^[ \t]/u.test(line)) break
-        const match = /^[ \t]+provider:\s*(.+?)\s*$/u.exec(line)
-        if (match?.[1]?.replace(/^["']|["']$/gu, '') === selection.provider) return 'unchanged'
-      }
-    }
-  }
+  if (onlyIfUnset && settingsHasAnyDefaultModel(existing)) return 'unchanged'
   await writeDshDefaultModelFile(selection, path)
   return 'file'
 }

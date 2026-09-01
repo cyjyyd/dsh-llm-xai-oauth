@@ -30,8 +30,10 @@ export const DEFAULT_UPSTREAM_BASE = 'https://cli-chat-proxy.grok.com/v1'
 export const DEFAULT_API_BASE = 'https://api.x.ai/v1'
 export const DEFAULT_CLIENT_VERSION = '1.0.0'
 export const DEFAULT_CLIENT_MODE = 'cli'
-const REFRESH_SKEW_MS = 5 * 60 * 1000
+export const REFRESH_SKEW_MS = 5 * 60 * 1000
 const DEFAULT_TOKEN_LIFETIME_SECONDS = 3600
+/** How often the independent refresher re-reads the token file. */
+export const REFRESH_DAEMON_POLL_MS = 60 * 1000
 
 export interface AccessToken {
   accessToken: string
@@ -194,20 +196,44 @@ export function missingTokenError(): Error {
   )
 }
 
+export function tokenNeedsRefresh(tokens: StoredTokens, now = Date.now(), skewMs = REFRESH_SKEW_MS): boolean {
+  if (tokens.refreshToken === null) return false
+  if (tokens.expiresAt === null) return false
+  return tokens.expiresAt - now < skewMs
+}
+
+export async function refreshStoredTokens(
+  config: OAuthConfig,
+  options: { force?: boolean; signal?: AbortSignal } = {},
+): Promise<StoredTokens> {
+  const tokens = await loadStoredTokens(config)
+  if (tokens === null) throw missingTokenError()
+  if (tokens.refreshToken === null) {
+    throw new Error('xAI OAuth has no refresh_token; re-run `dsh-llm-xai-oauth login --force`.')
+  }
+  if (options.force !== true && !tokenNeedsRefresh(tokens)) return tokens
+  if (inflightRefresh === undefined) {
+    inflightRefresh = refreshTokens(config, tokens.refreshToken, tokens.clientId, options.signal)
+      .finally(() => { inflightRefresh = undefined })
+  }
+  return inflightRefresh
+}
+
 export async function getAccessToken(config: OAuthConfig, signal?: AbortSignal): Promise<string> {
   const tokens = await loadStoredTokens(config)
-  if (tokens === null) {
-    throw missingTokenError()
-  }
-  const expiringSoon = tokens.expiresAt !== null && tokens.expiresAt - Date.now() < REFRESH_SKEW_MS
-  if (expiringSoon && tokens.refreshToken !== null) {
-    if (inflightRefresh === undefined) {
-      inflightRefresh = refreshTokens(config, tokens.refreshToken, tokens.clientId, signal)
-        .finally(() => { inflightRefresh = undefined })
-    }
-    return (await inflightRefresh).accessToken
+  if (tokens === null) throw missingTokenError()
+  if (tokenNeedsRefresh(tokens)) {
+    return (await refreshStoredTokens(config, { signal })).accessToken
   }
   return tokens.accessToken
+}
+
+/** Force a refresh after the upstream rejected the current access token. */
+export async function refreshAccessTokenAfterUnauthorized(
+  config: OAuthConfig,
+  signal?: AbortSignal,
+): Promise<string> {
+  return (await refreshStoredTokens(config, { force: true, signal })).accessToken
 }
 
 export interface DeviceCode {
