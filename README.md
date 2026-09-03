@@ -142,6 +142,8 @@ Or pass `--provider` / `--model`, or use `/model` in the TUI. At startup the plu
 
 Optional plugin settings live under `llm-xai-oauth:` in `$DSH_HOME/settings.yaml` (`baseURL`, `reasoningEffort`, `models`, retry / idle timeout). Change them without restarting; the next request re-resolves.
 
+Long SuperGrok chats can fill the 500K window and then 400 with a generic `INVALID_REQUEST` because `max_tokens` no longer fits. From 0.1.3 the adapter projects the next prompt from the last usage sample and, when remaining context cannot hold the requested completion, throws `CONTEXT_WINDOW_EXCEEDED` so harness overflow compaction can retry. Compaction / title calls still go through, with `max_tokens` clamped to the remainder.
+
 ## 401 / expiry
 
 ```bash
@@ -154,6 +156,7 @@ journalctl --user -u dsh-llm-xai-oauth.service -n 50
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `/usage` or chat HTTP 401 | access token expired, nothing refreshed it | `refresh --force`, then install the daemon |
+| chat HTTP 400 `INVALID_REQUEST` on a long session | remaining context < `max_tokens`; older plugin versions did not trip compaction | update to 0.1.3+; `/compact` if a turn already failed |
 | status says `no refresh_token` | truncated file / not an OAuth login | `login --force` |
 | dump-config has no `llm-xai-oauth` | plugin is not in this profile | repeat step 1 |
 | token exists but dsh still uses DeepSeek | `agent-default-model` is not `xai` | `/model`, or edit settings.yaml |
@@ -187,6 +190,7 @@ src/cli.ts          login / status / refresh / daemon
 src/bootstrap.ts    local token search, device login, dsh default model
 src/oauth.ts        load / refresh / device-code
 src/adapter.ts      fetch + SSE chat-completions adapter (retries once on 401)
+src/context-budget.ts  project remaining context and trip harness overflow compaction
 cordis.patch.yml    profile bundle insert
 ```
 

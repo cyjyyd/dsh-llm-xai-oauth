@@ -34,6 +34,13 @@ import { parseSse } from './sse.js'
 import { translate } from './translate.js'
 import type { WireError } from './types.js'
 import { proxyDispatcher } from './oauth.js'
+import {
+  estimateRequestTokens,
+  projectedPromptTokens,
+  promptTokensFromUsage,
+  planRequestBudget,
+  type LastPromptBudget,
+} from './context-budget.js'
 
 export interface XaiCatalogModel {
   id: string
@@ -71,6 +78,8 @@ export interface XaiAdapterOptions {
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 export const DEFAULT_CONTEXT_WINDOW = 500_000
 export const DEFAULT_MAX_TOKENS = 64_000
+/** Leave a tiny remainder so compaction, not a 1-token completion, owns a full window. */
+export const MIN_COMPLETION_TOKENS = 16
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 
 const EFFORT_NAMES: Record<XaiReasoningEffort, string> = {
@@ -200,15 +209,54 @@ export function httpErrorCode(status: number, error?: WireError['error']): strin
   if (status === 429) return 'RATE_LIMIT'
   if (status === 400) {
     if (isContextWindowExceededError(detail)) return CONTEXT_WINDOW_EXCEEDED_CODE
+    // SuperGrok often returns a generic 400. Only map it to overflow when the
+    // body still names remaining/max context, not every mention of "token".
+    if (
+      /\bmax_tokens\b/i.test(detail)
+      || /\b(?:remaining|available)\b.{0,40}\bcontext\b/i.test(detail)
+      || /\bcontext\b.{0,40}\b(?:remaining|available)\b/i.test(detail)
+    ) {
+      return CONTEXT_WINDOW_EXCEEDED_CODE
+    }
+    // Empty / stripped 400 bodies are the common SuperGrok overflow shape.
+    if (detail.trim() === '') return CONTEXT_WINDOW_EXCEEDED_CODE
     return 'INVALID_REQUEST'
   }
   if (status >= 500) return 'SERVER'
   return `HTTP_${status}`
 }
 
+function contextWindowFor(
+  connection: XaiConnectionOptions,
+  catalog: readonly XaiCatalogModel[],
+  model: string,
+): number {
+  return catalog.find(entry => entry.id === model)?.contextWindow ?? connection.defaultContextWindow
+}
+
+function sessionBudgetKey(options: GenerateOptions): string {
+  return options.sessionId === undefined ? '' : String(options.sessionId)
+}
+
+function overflowError(promptTokens: number, contextWindow: number, maxTokens: number): LlmError {
+  return new LlmError(
+    `xAI prompt is ${promptTokens} tokens with max_tokens ${maxTokens}; `
+    + `the model context window is ${contextWindow}`,
+    CONTEXT_WINDOW_EXCEEDED_CODE,
+    { status: 400 },
+  )
+}
+
 export class XaiAdapter extends LlmAdapter {
   constructor(private readonly config: XaiAdapterOptions) {
     super()
+  }
+
+  private readonly lastPrompt = new Map<string, LastPromptBudget>()
+
+  /** Test / recovery hook: seed the last successful prompt sample for a session. */
+  rememberPrompt(sessionId: string, budget: LastPromptBudget): void {
+    this.lastPrompt.set(sessionId, budget)
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
@@ -255,8 +303,39 @@ export class XaiAdapter extends LlmAdapter {
     })
   }
 
+  private assertFitsContext(options: GenerateOptions, connection: XaiConnectionOptions): void {
+    const plan = this.planBudget(options, connection)
+    if (plan.overflow) {
+      throw overflowError(
+        plan.promptTokens ?? 0,
+        contextWindowFor(connection, this.catalog(), options.model),
+        options.maxTokens ?? connection.maxTokens,
+      )
+    }
+  }
+
+  private planBudget(options: GenerateOptions, connection: XaiConnectionOptions) {
+    const estimate = estimateRequestTokens(options)
+    const promptTokens = projectedPromptTokens(
+      this.lastPrompt.get(sessionBudgetKey(options)),
+      estimate,
+    )
+    return {
+      estimate,
+      promptTokens,
+      ...planRequestBudget({
+        promptTokens,
+        contextWindow: contextWindowFor(connection, this.catalog(), options.model),
+        requestedMax: options.maxTokens ?? connection.maxTokens,
+        minRemaining: MIN_COMPLETION_TOKENS,
+        purpose: options.purpose,
+      }),
+    }
+  }
+
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const connection = this.config.options()
+    this.assertFitsContext(options, connection)
     let accessToken = await this.config.resolveAccessToken(connection)
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -372,7 +451,22 @@ export class XaiAdapter extends LlmAdapter {
     images: ImageDataByAttachmentId,
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
-    const body = serializeRequest(options, connection.defaults, images)
+    const key = sessionBudgetKey(options)
+    const budget = this.planBudget(options, connection)
+    if (budget.overflow) {
+      throw overflowError(
+        budget.promptTokens ?? 0,
+        contextWindowFor(connection, this.catalog(), options.model),
+        options.maxTokens ?? connection.maxTokens,
+      )
+    }
+    const body = serializeRequest(
+      budget.maxTokens === undefined
+        ? options
+        : { ...options, maxTokens: budget.maxTokens },
+      connection.defaults,
+      images,
+    )
     const payload = JSON.stringify(body)
     const headers: Record<string, string> = {
       authorization: `Bearer ${accessToken}`,
@@ -419,6 +513,16 @@ export class XaiAdapter extends LlmAdapter {
       })
     }
     if (!response.body) throw new LlmError('xAI API returned no response body', 'EMPTY_RESPONSE')
-    yield* translate(parseSse(response.body, onComment))
+    for await (const chunk of translate(parseSse(response.body, onComment))) {
+      if (chunk.type === 'usage') {
+        if (options.purpose !== 'compaction' && options.purpose !== 'session-title') {
+          this.lastPrompt.set(key, {
+            promptTokens: promptTokensFromUsage(chunk.usage),
+            estimate: budget.estimate,
+          })
+        }
+      }
+      yield chunk
+    }
   }
 }

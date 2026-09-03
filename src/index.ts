@@ -40,6 +40,15 @@ import { fetch as undiciFetch } from 'undici'
 export { XaiAdapter } from './adapter.js'
 export type { XaiAdapterOptions, XaiCatalogModel, XaiConnectionOptions } from './adapter.js'
 export {
+  estimateRequestTokens,
+  projectPromptTokens,
+  projectedPromptTokens,
+  promptTokensFromUsage,
+  planRequestBudget,
+  shouldTriggerCompaction,
+} from './context-budget.js'
+export { httpErrorCode } from './adapter.js'
+export {
   DEFAULT_AUTH_BASE,
   DEFAULT_CLIENT_ID,
   DEFAULT_SCOPE,

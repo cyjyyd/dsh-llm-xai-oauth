@@ -82,11 +82,19 @@ test('resolveAdapterOptions defaults to the Grok subscription proxy', () => {
   assert.equal(options.defaults.reasoningEffort, 'high')
 })
 
-import { catalogModelFromListing, mergeXaiCatalog } from '../lib/adapter.js'
+import { catalogModelFromListing, mergeXaiCatalog, httpErrorCode, XaiAdapter } from '../lib/adapter.js'
 import { explicitSearchPaths, searchLocalTokens } from '../lib/discover.js'
 import { bootstrapXaiOAuth } from '../lib/bootstrap.js'
 import { applyDshDefaultModel, upsertDefaultModelSection, settingsHasDefaultModel } from '../lib/dsh-defaults.js'
 import { formatLoginPrompt } from '../lib/login-flow.js'
+import {
+  estimateRequestTokens,
+  projectPromptTokens,
+  projectedPromptTokens,
+  promptTokensFromUsage,
+  planRequestBudget,
+  shouldTriggerCompaction,
+} from '../lib/context-budget.js'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -363,4 +371,101 @@ test('refresh daemon idles when the access token is still valid', async () => {
   })
   assert.equal(logs.some(line => line.includes('watching')), true)
   assert.equal(logs.some(line => line.includes('idle')), true)
+})
+
+test('promptTokensFromUsage includes cached prompt tokens', () => {
+  assert.equal(promptTokensFromUsage({ inputTokens: 1807, cacheReadTokens: 497536 }), 499343)
+})
+
+test('projectPromptTokens scales the last provider prompt by the heuristic ratio', () => {
+  assert.equal(projectPromptTokens(499_343, 10_000, 10_020), Math.round(499_343 * (10_020 / 10_000)))
+  assert.equal(projectPromptTokens(499_343, 10_000, 4_000), Math.round(499_343 * 0.4))
+})
+
+test('shouldTriggerCompaction fires when remaining context cannot fit max_tokens', () => {
+  assert.equal(shouldTriggerCompaction(499_343, 500_000, 16, 64_000), true)
+  assert.equal(shouldTriggerCompaction(400_000, 500_000, 16), false)
+  assert.equal(shouldTriggerCompaction(500_000, 500_000), true)
+})
+
+test('planRequestBudget overflows a full chat, clamps compaction, and leaves roomy calls alone', () => {
+  assert.deepEqual(planRequestBudget({
+    promptTokens: 499_343,
+    contextWindow: 500_000,
+    requestedMax: 64_000,
+    minRemaining: 16,
+  }), { overflow: true })
+  assert.deepEqual(planRequestBudget({
+    promptTokens: 499_343,
+    contextWindow: 500_000,
+    requestedMax: 8_192,
+    minRemaining: 16,
+    purpose: 'compaction',
+  }), { overflow: false, maxTokens: 657 })
+  assert.deepEqual(planRequestBudget({
+    promptTokens: 10_000,
+    contextWindow: 500_000,
+    requestedMax: 64_000,
+    minRemaining: 16,
+  }), { overflow: false })
+  assert.deepEqual(planRequestBudget({
+    promptTokens: undefined,
+    contextWindow: 500_000,
+    requestedMax: 64_000,
+    minRemaining: 16,
+  }), { overflow: false })
+})
+
+test('httpErrorCode maps token-named HTTP 400 to CONTEXT_WINDOW_EXCEEDED', () => {
+  assert.equal(
+    httpErrorCode(400, { message: "This model's maximum context length is 500000 tokens" }),
+    'CONTEXT_WINDOW_EXCEEDED',
+  )
+  assert.equal(
+    httpErrorCode(400, { message: 'max_tokens is too large for the remaining context' }),
+    'CONTEXT_WINDOW_EXCEEDED',
+  )
+  assert.equal(
+    httpErrorCode(400, { message: 'A tool_choice was set but no tools were specified' }),
+    'INVALID_REQUEST',
+  )
+  assert.equal(httpErrorCode(400, { message: '' }), 'CONTEXT_WINDOW_EXCEEDED')
+  assert.equal(httpErrorCode(400), 'CONTEXT_WINDOW_EXCEEDED')
+})
+
+test('projectedPromptTokens is undefined until a sample exists', () => {
+  const estimate = estimateRequestTokens({
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+  })
+  assert.equal(projectedPromptTokens(undefined, estimate), undefined)
+  assert.ok(estimate > 0)
+})
+
+test('XaiAdapter throws CONTEXT_WINDOW_EXCEEDED before fetch when the last prompt filled the window', async () => {
+  const adapter = new XaiAdapter({
+    options: () => resolveAdapterOptions({}),
+    resolveAccessToken: async () => {
+      throw new Error('must not fetch a token after overflow')
+    },
+  })
+  const sessionId = 'main-session-overflow'
+  const messages = [{ role: 'user', content: [{ type: 'text', text: 'continue' }] }]
+  const estimate = estimateRequestTokens({ messages })
+  adapter.rememberPrompt(sessionId, { promptTokens: 499_343, estimate })
+  let thrown
+  try {
+    for await (const _chunk of adapter.stream({
+      provider: 'xai',
+      model: 'grok-4.6',
+      messages,
+      maxTokens: 64_000,
+      sessionId,
+    })) {
+      throw new Error('must not stream after overflow')
+    }
+  } catch (error) {
+    thrown = error
+  }
+  assert.equal(thrown?.code, 'CONTEXT_WINDOW_EXCEEDED')
+  assert.match(String(thrown?.message), /499343/)
 })

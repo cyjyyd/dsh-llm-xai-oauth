@@ -144,6 +144,8 @@ DeepSeek 风格选择器里的 `max` 会映射成 `xhigh`。
 
 可选配置写在 `$DSH_HOME/settings.yaml` 的 `llm-xai-oauth:`（`baseURL`、`reasoningEffort`、`models`、重试 / 空闲超时）。改完不用重启 dsh，下一次请求再生效。
 
+超长 SuperGrok 会话会把 500K 窗口填满，下一轮 `max_tokens` 装不下时代理常回笼统的 HTTP 400 `INVALID_REQUEST`。从 0.1.3 起，适配器用上一轮用量推算下一次 prompt；剩余上下文装不下请求的补全时，会抛 `CONTEXT_WINDOW_EXCEEDED`，让 harness 走溢出压缩再试。压缩 / 标题请求仍会发出，并把 `max_tokens` 钳到剩余窗口。
+
 ## 401 / 过期排查
 
 ```bash
@@ -157,6 +159,7 @@ journalctl --user -u dsh-llm-xai-oauth.service -n 50
 | 现象 | 常见原因 | 处理 |
 | --- | --- | --- |
 | `/usage` 或发消息 HTTP 401 | access token 过期，当时没人 refresh | `refresh --force`，并装 daemon |
+| 长会话发消息 HTTP 400 `INVALID_REQUEST` | 剩余上下文小于 `max_tokens`；旧版插件不会触发压缩 | 升到 0.1.3+；若本轮已经失败可 `/compact` |
 | status 显示 `no refresh_token` | 文件残缺或不是 OAuth 登录产物 | `login --force` |
 | dump-config 没有 `llm-xai-oauth` | 插件没进这个 profile | 再执行第 1 步 |
 | 有 token 但仍走 DeepSeek | `agent-default-model` 不是 xai | `/model` 切过去，或看 settings.yaml |
