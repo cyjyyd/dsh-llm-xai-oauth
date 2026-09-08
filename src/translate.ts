@@ -1,7 +1,16 @@
-import { CallId, EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import { EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import * as dshLlm from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, StreamChunk, ToolCallId, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { DONE } from './sse.js'
 import type { WireChunk, WireUsage } from './types.js'
+
+// 0.1.1-rc.2 brands tool-call ids via `CallId`; 0.1.2-rc.1 renamed it to
+// `ToolCallId`. Pick whichever constructor the host engine exports, falling
+// back to the identity cast so a future rename cannot crash tool calls.
+const brandToolCallId = (((
+  dshLlm as Record<string, unknown>
+).CallId ?? (dshLlm as Record<string, unknown>).ToolCallId) as ((id: string) => ToolCallId) | undefined)
+  ?? ((id: string) => id as ToolCallId)
 
 interface OpenBlock {
   index: number
@@ -41,7 +50,7 @@ function closeBlock(block: OpenBlock): ContentBlock {
     case 'reasoning': return { type: 'reasoning', text: block.text }
     case 'tool-call': return {
       type: 'tool-call',
-      id: CallId(block.callId ?? ''),
+      id: brandToolCallId(block.callId ?? ''),
       name: block.name ?? '',
       arguments: block.text,
     }
@@ -123,7 +132,7 @@ export async function* translate(payloads: AsyncIterable<string>): AsyncGenerato
         yield {
           type: 'tool-call-delta',
           index: block.index,
-          id: CallId(block.callId ?? ''),
+          id: brandToolCallId(block.callId ?? ''),
           ...block.name !== undefined ? { name: block.name } : {},
           argumentsDelta: fragment,
         }

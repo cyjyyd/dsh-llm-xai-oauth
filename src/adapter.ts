@@ -250,6 +250,14 @@ function overflowError(promptTokens: number, contextWindow: number, maxTokens: n
 export class XaiAdapter extends LlmAdapter {
   constructor(private readonly config: XaiAdapterOptions) {
     super()
+    // Local-only shim for this machine's dsh 0.1.2-alpha.1 token-meter.
+    // Official 0.1.1-rc.2 has no imageRequestPricing; 0.1.2 calls it on every
+    // /compact. Keep this assignment untyped so 0.1.1-rc.2 still typechecks.
+    Object.assign(this, {
+      imageRequestPricing(_provider: string, _model: string) {
+        return undefined
+      },
+    })
   }
 
   private readonly lastPrompt = new Map<string, LastPromptBudget>()

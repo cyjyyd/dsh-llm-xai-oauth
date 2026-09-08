@@ -469,3 +469,12 @@ test('XaiAdapter throws CONTEXT_WINDOW_EXCEEDED before fetch when the last promp
   assert.equal(thrown?.code, 'CONTEXT_WINDOW_EXCEEDED')
   assert.match(String(thrown?.message), /499343/)
 })
+
+test('XaiAdapter exposes imageRequestPricing as a no-op for 0.1.2 token-meter', () => {
+  const adapter = new XaiAdapter({
+    options: () => resolveAdapterOptions({}),
+    resolveAccessToken: async () => 'unused',
+  })
+  assert.equal(typeof adapter.imageRequestPricing, 'function')
+  assert.equal(adapter.imageRequestPricing('xai', 'grok-4.6'), undefined)
+})
