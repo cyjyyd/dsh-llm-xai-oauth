@@ -1,5 +1,5 @@
 /**
- * Dual-stack shims for dsh 0.1.1-rc.2 and 0.1.2-rc.1.
+ * Dual-stack shims for dsh 0.1.2-rc.1 and 0.1.5-rc.1.
  *
  * 0.1.2-rc.1 removed the free exports `installSettingsSection`,
  * `settingsNamespace` and `deepEqualJson` from @deepseek-ai/dsh-settings:
@@ -7,8 +7,8 @@
  * `SettingsProvider.installSection` (reached via `ctx.inject`, the pattern
  * the harness's own packages use), namespaces are now branded at the type
  * level only, and `deepEqualJson` lives in @deepseek-ai/dsh-util-values.
- * Every shim here keeps the same runtime value on both hosts and picks the
- * API shape that is actually present, so one build works on either engine.
+ * 0.1.5 kept that settings surface and the `LlmAdapter` stream contract this
+ * plugin already implements, so the same build runs on either host.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SettingsNamespace, SettingsSectionHooks } from '@deepseek-ai/dsh-settings'

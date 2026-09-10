@@ -14,7 +14,9 @@ Use a SuperGrok / X Premium subscription as a **native DeepSeek Harness LLM prov
 
 ## Setup in five minutes
 
-You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`). On a remote SSH box, install this next to [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) in the same profile.
+You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`).
+Verified on `0.1.2-rc.1` and `0.1.5-rc.1` (`0.1.3-alpha.2`, `0.1.5-alpha.1` / `0.1.5-alpha.2` share the same adapter surface).
+On a remote SSH box, install this next to [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) in the same profile.
 
 ### 1. Add the plugin to a profile
 

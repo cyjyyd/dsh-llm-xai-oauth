@@ -82,6 +82,20 @@ function serializeAssistant(message: Message): WireMessage {
   }
 }
 
+/**
+ * Translate harness messages onto the OpenAI-compatible wire shape.
+ *
+ * dsh 0.1.5 changed where the system prompt travels: a loop-built request now
+ * leaves `GenerateOptions.system` undefined and carries the rendered prompt as
+ * a leading `system`-role message inside `messages` (0.1.2-rc.1 put it in
+ * `options.system`). Both shapes stay supported here — `serializeRequest`
+ * prepends `options.system` when a hand-built one-shot sets it, and the loop
+ * below already maps any `system`-role message to the wire system slot.
+ *
+ * Newer hosts may also hand adapters `file` content blocks in history; the
+ * harness projects those to deterministic handle text before dispatch, so the
+ * unknown-type fall-through here is a defensive no-op rather than a gap.
+ */
 export function serializeMessages(
   messages: Message[],
   images: ImageDataByAttachmentId = new Map(),

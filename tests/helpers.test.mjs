@@ -478,3 +478,75 @@ test('XaiAdapter exposes imageRequestPricing as a no-op for 0.1.2 token-meter', 
   assert.equal(typeof adapter.imageRequestPricing, 'function')
   assert.equal(adapter.imageRequestPricing('xai', 'grok-4.6'), undefined)
 })
+
+test('manifest declares exact dshReleases for 0.1.2-rc.1 and 0.1.5-rc.1', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { dirname, join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const semver = (await import('semver')).default
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+  const releases = manifest.dsh?.compatibility?.dshReleases
+  const range = manifest.dsh?.compatibility?.dsh
+  assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
+  assert.equal(releases['0.1.2-rc.1'], 'compatible')
+  assert.equal(releases['0.1.5-rc.1'], 'compatible')
+  assert.equal(releases['0.1.5-alpha.1'], 'compatible')
+  assert.equal(manifest.engines?.node, '>=22.19')
+  // Node-semver only admits a prerelease when a comparator carries the same
+  // [major, minor, patch] tuple, so a bare `>=0.1.2-rc.1` would silently
+  // reject 0.1.5-rc.1. Pin the exact semantics a package manager sees.
+  const inRange = version => semver.satisfies(version, range)
+  assert.equal(inRange('0.1.2-rc.1'), true)
+  assert.equal(inRange('0.1.3-alpha.2'), true)
+  assert.equal(inRange('0.1.5-alpha.1'), true)
+  assert.equal(inRange('0.1.5-alpha.2'), true)
+  assert.equal(inRange('0.1.5-rc.1'), true)
+  assert.equal(inRange('0.1.5-rc.2'), true)
+  assert.equal(inRange('0.1.5'), true)
+  assert.equal(inRange('0.1.1-rc.2'), false)
+  assert.equal(inRange('0.1.3-alpha.1'), false)
+  assert.equal(inRange('0.1.6-alpha.1'), false)
+  assert.equal(inRange('0.1.6'), false)
+  assert.equal(semver.maxSatisfying(['0.1.2-rc.1', '0.1.5-rc.1'], range), '0.1.5-rc.1')
+  // Every dsh peer shares that range, so a 0.1.5-rc.1 host satisfies the
+  // declaration while a 0.1.2-rc.1 install keeps resolving.
+  for (const [name, peerRange] of Object.entries(manifest.peerDependencies ?? {})) {
+    if (name === '@deepseek-ai/cordis') continue
+    assert.match(name, /^@deepseek-ai\/dsh-/u)
+    assert.equal(peerRange, range, `${name} must accept both verified hosts`)
+  }
+})
+
+test('serializeRequest keeps the 0.1.5 in-messages system prompt in the wire system slot', () => {
+  // dsh 0.1.5 builds loop requests with `system` undefined and a leading
+  // system-role message carrying the rendered prompt.
+  const body = serializeRequest({
+    provider: 'xai',
+    model: 'grok-4.6',
+    messages: [
+      { role: 'system', content: [{ type: 'text', text: 'You are an AI agent powered by DeepSeek Harness.' }] },
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+    ],
+  })
+  assert.deepEqual(body.messages[0], {
+    role: 'system',
+    content: 'You are an AI agent powered by DeepSeek Harness.',
+  })
+  assert.equal(body.messages.filter(message => message.role === 'system').length, 1)
+  assert.deepEqual(body.messages[1], { role: 'user', content: 'hi' })
+})
+
+test('serializeRequest prepends options.system only for one-shot callers', () => {
+  const body = serializeRequest({
+    provider: 'xai',
+    model: 'grok-4.6',
+    system: 'one-shot system prompt',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+  })
+  assert.deepEqual(body.messages, [
+    { role: 'system', content: 'one-shot system prompt' },
+    { role: 'user', content: 'hi' },
+  ])
+})
+

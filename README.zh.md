@@ -14,7 +14,7 @@ English: [README.md](README.md)。配套 TUI：[dsh-ssh-tui](https://github.com/
 
 ## 5 分钟配好
 
-下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`），Node.js ≥ 22.19。远程 SSH 机器建议和 [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) 装在同一个 profile。
+下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.2-rc.1` 与 `0.1.5-rc.1`，`0.1.3-alpha.2` / `0.1.5-alpha.1` / `0.1.5-alpha.2` 共用同一套适配器接口），Node.js ≥ 22.19。远程 SSH 机器建议和 [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) 装在同一个 profile。
 
 ### 1. 把插件装进 profile
 
