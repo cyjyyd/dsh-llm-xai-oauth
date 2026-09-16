@@ -14,8 +14,8 @@ if ! command -v dsh >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> adding dsh-llm-xai-oauth from npm into dsh profile '$PROFILE'"
-dsh plugin --profile "$PROFILE" add dsh-llm-xai-oauth
+echo "==> adding dsh-llm-xai-oauth@latest from npm into dsh profile '$PROFILE'"
+dsh plugin --profile "$PROFILE" add dsh-llm-xai-oauth@latest
 
 echo "==> done"
 echo "select with:    dsh --profile $PROFILE --provider xai --model grok-4.6"

@@ -1,8 +1,35 @@
 # dsh-llm-xai-oauth
 
-Use a SuperGrok / X Premium subscription as a **native DeepSeek Harness LLM provider**. No xAI API key.
+[![npm](https://img.shields.io/npm/v/dsh-llm-xai-oauth?style=flat-square&color=4b6fff)](https://www.npmjs.com/package/dsh-llm-xai-oauth)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-llm-xai-oauth?style=flat-square)](https://www.npmjs.com/package/dsh-llm-xai-oauth)
+[![CI](https://github.com/cyjyyd/dsh-llm-xai-oauth/actions/workflows/ci.yml/badge.svg)](https://github.com/cyjyyd/dsh-llm-xai-oauth/actions/workflows/ci.yml)
+[![dshfind](https://dshfind.com/api/badge/cyjyyd/dsh-llm-xai-oauth)](https://dshfind.com/en/plugins/cyjyyd/dsh-llm-xai-oauth?ref=badge)
 
-中文：[README.zh.md](README.zh.md). Companion TUI: [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui).
+You already pay for SuperGrok / X Premium. This plugin puts that subscription
+into DeepSeek Harness as a live `xai` route: `grok-4.6`, device-code login,
+token refresh that does not depend on a TUI being open. No xAI API key.
+
+Works in **headless**, **web**, and any terminal profile. The SSH TUI
+[dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) can sit on top; it is not
+required.
+
+中文：[README.zh.md](README.zh.md)
+
+Listed on [dshfind](https://dshfind.com/en/plugins/cyjyyd/dsh-llm-xai-oauth):
+
+[![dshfind](https://dshfind.com/api/card/cyjyyd/dsh-llm-xai-oauth?lang=en)](https://dshfind.com/en/plugins/cyjyyd/dsh-llm-xai-oauth?ref=badge)
+
+Install from **npm** (do not use the GitHub source unless you are developing):
+
+```bash
+dsh plugin --profile headless add dsh-llm-xai-oauth@latest
+npx dsh-llm-xai-oauth login
+npx dsh-llm-xai-oauth daemon --install
+dsh --profile headless --provider xai --model grok-4.6
+```
+
+Swap `headless` for `web` or `tui`. **Updates must use `@latest`.** A bare
+`add dsh-llm-xai-oauth` keeps whatever version pnpm already pinned.
 
 ## Three facts that matter
 
@@ -15,40 +42,23 @@ Use a SuperGrok / X Premium subscription as a **native DeepSeek Harness LLM prov
 ## Setup in five minutes
 
 You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`).
-Verified on `0.1.2-rc.1` and `0.1.5-rc.1` (`0.1.3-alpha.2`, `0.1.5-alpha.1` / `0.1.5-alpha.2` share the same adapter surface).
-On a remote SSH box, install this next to [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) in the same profile.
+Verified on `0.1.2-rc.1` and `0.1.5-rc.1` / `0.1.5-rc.2`. `0.1.6-alpha` is not supported; stay on `0.1.5-rc.2`.
 
 ### 1. Add the plugin to a profile
 
 ```bash
-dsh plugin --profile tui add dsh-llm-xai-oauth
-dsh plugin --profile headless add dsh-llm-xai-oauth
+dsh plugin --profile headless add dsh-llm-xai-oauth@latest
+dsh plugin --profile web add dsh-llm-xai-oauth@latest
+dsh plugin --profile tui add dsh-llm-xai-oauth@latest
 ```
 
-Web UI as well, if you use it:
+Confirm the bundle landed (`id: llm-xai-oauth`). Without that line, `/model` will not have a live SuperGrok route:
 
 ```bash
-dsh plugin --profile web add dsh-llm-xai-oauth
+dsh --profile headless --dump-config | grep llm-xai-oauth
 ```
 
-Confirm the bundle landed:
-
-```bash
-dsh --profile tui --dump-config | grep llm-xai-oauth
-```
-
-You want `id: llm-xai-oauth`. Without that line, `/model` will not have a live SuperGrok route.
-
-A local checkout / GitHub source still works:
-
-```bash
-git clone https://github.com/cyjyyd/dsh-llm-xai-oauth.git
-cd dsh-llm-xai-oauth
-bash scripts/install.sh tui
-
-# or
-dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
-```
+A local checkout is for development. Prefer npm; a bare `github:` install is what outdated directories still suggest, and pnpm ≥ 10 will refuse its `prepare` script until you allow builds.
 
 ### 2. Log in once (from a machine that can open a browser)
 

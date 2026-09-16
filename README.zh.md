@@ -1,8 +1,31 @@
 # dsh-llm-xai-oauth
 
-把 SuperGrok / X Premium 订阅接到 DeepSeek Harness，当成**原生 LLM 提供商**用。不需要 xAI API Key。
+[![npm](https://img.shields.io/npm/v/dsh-llm-xai-oauth?style=flat-square&color=4b6fff)](https://www.npmjs.com/package/dsh-llm-xai-oauth)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-llm-xai-oauth?style=flat-square)](https://www.npmjs.com/package/dsh-llm-xai-oauth)
+[![CI](https://github.com/cyjyyd/dsh-llm-xai-oauth/actions/workflows/ci.yml/badge.svg)](https://github.com/cyjyyd/dsh-llm-xai-oauth/actions/workflows/ci.yml)
+[![dshfind](https://dshfind.com/api/badge/cyjyyd/dsh-llm-xai-oauth)](https://dshfind.com/zh/plugins/cyjyyd/dsh-llm-xai-oauth?ref=badge)
 
-English: [README.md](README.md)。配套 TUI：[dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui)。
+已经在付 SuperGrok / X Premium 的话，用这个插件把订阅接进 DeepSeek Harness：
+原生 `xai` 路由、`grok-4.6`、设备码登录、token 刷新不依赖某个 TUI 开着。不需要 xAI API Key。
+
+**headless、web、任意终端 profile 都能用。** SSH 终端 [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) 可以叠在上面，不是前置条件。
+
+English: [README.md](README.md)
+
+[dshfind 插件目录](https://dshfind.com/zh/plugins/cyjyyd/dsh-llm-xai-oauth) 已收录（请用 npm 安装，不要用页面上过期的 git 源）：
+
+[![dshfind](https://dshfind.com/api/card/cyjyyd/dsh-llm-xai-oauth?lang=zh)](https://dshfind.com/zh/plugins/cyjyyd/dsh-llm-xai-oauth?ref=badge)
+
+从 **npm** 装（开发时才用 GitHub 源）：
+
+```bash
+dsh plugin --profile headless add dsh-llm-xai-oauth@latest
+npx dsh-llm-xai-oauth login
+npx dsh-llm-xai-oauth daemon --install
+dsh --profile headless --provider xai --model grok-4.6
+```
+
+profile 换成 `web` 或 `tui` 即可。**更新必须带 `@latest`。** 写成裸的 `add dsh-llm-xai-oauth` 时，pnpm 会沿用 lockfile 里钉死的旧版。
 
 ## 你要先知道的三件事
 
@@ -14,40 +37,23 @@ English: [README.md](README.md)。配套 TUI：[dsh-ssh-tui](https://github.com/
 
 ## 5 分钟配好
 
-下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.2-rc.1` 与 `0.1.5-rc.1`，`0.1.3-alpha.2` / `0.1.5-alpha.1` / `0.1.5-alpha.2` 共用同一套适配器接口），Node.js ≥ 22.19。远程 SSH 机器建议和 [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) 装在同一个 profile。
+下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.2-rc.1` 与 `0.1.5-rc.1` / `0.1.5-rc.2`），Node.js ≥ 22.19。`0.1.6-alpha` 不支持，请停在 `0.1.5-rc.2`。
 
 ### 1. 把插件装进 profile
 
 ```bash
-dsh plugin --profile tui add dsh-llm-xai-oauth
-dsh plugin --profile headless add dsh-llm-xai-oauth
+dsh plugin --profile headless add dsh-llm-xai-oauth@latest
+dsh plugin --profile web add dsh-llm-xai-oauth@latest
+dsh plugin --profile tui add dsh-llm-xai-oauth@latest
 ```
 
-Web UI 用的话再加：
+确认 bundle 在（要看到 `id: llm-xai-oauth`。没有这条，`/model` 里不会出现可调用的 SuperGrok 路由）：
 
 ```bash
-dsh plugin --profile web add dsh-llm-xai-oauth
+dsh --profile headless --dump-config | grep llm-xai-oauth
 ```
 
-确认 bundle 在：
-
-```bash
-dsh --profile tui --dump-config | grep llm-xai-oauth
-```
-
-应该能看到 `id: llm-xai-oauth`。没有这条，`/model` 里不会出现可调用的 SuperGrok 路由。
-
-本机仓库 / GitHub 源仍然可用：
-
-```bash
-# 仓库
-git clone https://github.com/cyjyyd/dsh-llm-xai-oauth.git
-cd dsh-llm-xai-oauth
-bash scripts/install.sh tui
-
-# 或
-dsh plugin --profile tui add github:cyjyyd/dsh-llm-xai-oauth
-```
+本机仓库只给开发用。日常请走 npm；目录里过期的 `github:` 装法在 pnpm ≥ 10 上还会拦 `prepare` 脚本。
 
 ### 2. 登录一次（有浏览器的机器上）
 
