@@ -20,10 +20,15 @@ function blockTokens(block: ContentBlock): number {
       return textTokens(block.text)
     case 'tool-call':
       return textTokens(block.name) + textTokens(block.arguments)
-    case 'tool-result':
-      return block.content.reduce((sum, inner) => sum + blockTokens(inner), 0)
-    default:
+    default: {
+      // 0.1.5 nests a tool result's blocks here; 0.1.7 moved them onto the
+      // tool-role message, so this branch only fires on the older host.
+      const nested = (block as { content?: unknown }).content
+      if (Array.isArray(nested)) {
+        return nested.reduce((sum: number, inner) => sum + blockTokens(inner as ContentBlock), 0)
+      }
       return textTokens(JSON.stringify(block))
+    }
   }
 }
 

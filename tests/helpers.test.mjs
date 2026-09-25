@@ -470,7 +470,7 @@ test('XaiAdapter throws CONTEXT_WINDOW_EXCEEDED before fetch when the last promp
   assert.match(String(thrown?.message), /499343/)
 })
 
-test('XaiAdapter exposes imageRequestPricing as a no-op for 0.1.2 token-meter', () => {
+test('XaiAdapter declares no provider image pricing', () => {
   const adapter = new XaiAdapter({
     options: () => resolveAdapterOptions({}),
     resolveAccessToken: async () => 'unused',
@@ -479,7 +479,7 @@ test('XaiAdapter exposes imageRequestPricing as a no-op for 0.1.2 token-meter', 
   assert.equal(adapter.imageRequestPricing('xai', 'grok-4.6'), undefined)
 })
 
-test('manifest declares exact dshReleases for 0.1.2-rc.1 and 0.1.5-rc.1', async () => {
+test('manifest declares dshReleases for the 0.1.5 line and 0.1.7-rc.1', async () => {
   const { readFile } = await import('node:fs/promises')
   const { dirname, join } = await import('node:path')
   const { fileURLToPath } = await import('node:url')
@@ -489,28 +489,35 @@ test('manifest declares exact dshReleases for 0.1.2-rc.1 and 0.1.5-rc.1', async 
   const releases = manifest.dsh?.compatibility?.dshReleases
   const range = manifest.dsh?.compatibility?.dsh
   assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
-  assert.equal(releases['0.1.2-rc.1'], 'compatible')
+  assert.equal(releases['0.1.2-rc.1'], undefined)
   assert.equal(releases['0.1.5-rc.1'], 'compatible')
-  assert.equal(releases['0.1.5-alpha.1'], 'compatible')
+  assert.equal(releases['0.1.5-rc.2'], 'compatible')
+  assert.equal(releases['0.1.5-rc.3'], 'compatible')
+  assert.equal(releases['0.1.7-rc.1'], 'compatible')
   assert.equal(manifest.engines?.node, '>=22.19')
-  // Node-semver only admits a prerelease when a comparator carries the same
-  // [major, minor, patch] tuple, so a bare `>=0.1.2-rc.1` would silently
-  // reject 0.1.5-rc.1. Pin the exact semantics a package manager sees.
-  const inRange = version => semver.satisfies(version, range)
-  assert.equal(inRange('0.1.2-rc.1'), true)
-  assert.equal(inRange('0.1.3-alpha.2'), true)
-  assert.equal(inRange('0.1.5-alpha.1'), true)
-  assert.equal(inRange('0.1.5-alpha.2'), true)
+  // dsh 0.1.7 checks these peers with `semver.satisfies` and
+  // `includePrerelease: true`, so one `>=0.1.5-rc.1 <0.1.8` comparator would
+  // already admit every release in between. The manifest instead keeps one
+  // comparator per verified release tuple: node-semver only admits a
+  // prerelease when a comparator carries its exact [major, minor, patch], so
+  // this also rejects the 0.1.6 and 0.1.7 alphas that were never verified.
+  const inRange = version => semver.satisfies(version, range, { includePrerelease: true })
   assert.equal(inRange('0.1.5-rc.1'), true)
   assert.equal(inRange('0.1.5-rc.2'), true)
+  assert.equal(inRange('0.1.5-rc.3'), true)
+  assert.equal(inRange('0.1.7-rc.1'), true)
   assert.equal(inRange('0.1.5'), true)
-  assert.equal(inRange('0.1.1-rc.2'), false)
-  assert.equal(inRange('0.1.3-alpha.1'), false)
+  assert.equal(inRange('0.1.2-rc.1'), false)
+  assert.equal(inRange('0.1.5-alpha.1'), false)
+  assert.equal(inRange('0.1.5-alpha.2'), false)
   assert.equal(inRange('0.1.6-alpha.1'), false)
   assert.equal(inRange('0.1.6'), false)
-  assert.equal(semver.maxSatisfying(['0.1.2-rc.1', '0.1.5-rc.1'], range), '0.1.5-rc.1')
-  // Every dsh peer shares that range, so a 0.1.5-rc.1 host satisfies the
-  // declaration while a 0.1.2-rc.1 install keeps resolving.
+  assert.equal(inRange('0.1.7-alpha.1'), false)
+  assert.equal(inRange('0.1.7-alpha.2'), false)
+  assert.equal(inRange('0.1.7-rc.2'), false)
+  assert.equal(semver.maxSatisfying(['0.1.5-rc.3', '0.1.7-rc.1'], range, { includePrerelease: true }), '0.1.7-rc.1')
+  // Every dsh peer shares that range, so the same declaration satisfies the
+  // 0.1.7 install-time check and a 0.1.5-rc host.
   for (const [name, peerRange] of Object.entries(manifest.peerDependencies ?? {})) {
     if (name === '@deepseek-ai/cordis') continue
     assert.match(name, /^@deepseek-ai\/dsh-/u)
@@ -535,6 +542,71 @@ test('serializeRequest keeps the 0.1.5 in-messages system prompt in the wire sys
   })
   assert.equal(body.messages.filter(message => message.role === 'system').length, 1)
   assert.deepEqual(body.messages[1], { role: 'user', content: 'hi' })
+})
+
+test('serializeRequest maps a 0.1.7 tool-role result onto an OpenAI tool message', () => {
+  const body = serializeRequest({
+    provider: 'xai',
+    model: 'grok-4.6',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'run it' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: 'call_1', name: 'bash', arguments: '{"cmd":"ls"}' }],
+      },
+      { role: 'tool', toolCallId: 'call_1', content: [{ type: 'text', text: 'README.md' }] },
+    ],
+  })
+  assert.deepEqual(body.messages.at(-2), {
+    role: 'assistant',
+    content: '',
+    tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'bash', arguments: '{"cmd":"ls"}' } }],
+  })
+  assert.deepEqual(body.messages.at(-1), { role: 'tool', tool_call_id: 'call_1', content: 'README.md' })
+})
+
+test('serializeRequest keeps a 0.1.5 nested tool-result block on the wire tool message', () => {
+  const body = serializeRequest({
+    provider: 'xai',
+    model: 'grok-4.6',
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'tool-result', toolCallId: 'call_9', content: [{ type: 'text', text: 'done' }] }],
+      },
+    ],
+  })
+  assert.deepEqual(body.messages, [{ role: 'tool', tool_call_id: 'call_9', content: 'done' }])
+})
+
+test('serializeRequest drops a 0.1.7 developer message instead of inventing a role', () => {
+  const body = serializeRequest({
+    provider: 'xai',
+    model: 'grok-4.6',
+    messages: [
+      { role: 'developer', content: [{ type: 'tool-addition', toolName: 'bash' }] },
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+    ],
+  })
+  assert.deepEqual(body.messages, [{ role: 'user', content: 'hi' }])
+})
+
+test('serializeRequest sends an offloaded image as its placeholder text, not bytes', () => {
+  const body = serializeRequest({
+    provider: 'xai',
+    model: 'grok-4.6',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'see [image saved at /tmp/shot.png]' },
+        { type: 'image', offloaded: true, attachment: { attachmentId: 'img_1', mediaType: 'image/png' } },
+      ],
+    }],
+  }, {}, new Map([['img_1', 'AAAA']]))
+  assert.deepEqual(body.messages, [{
+    role: 'user',
+    content: [{ type: 'text', text: 'see [image saved at /tmp/shot.png]' }],
+  }])
 })
 
 test('serializeRequest prepends options.system only for one-shot callers', () => {

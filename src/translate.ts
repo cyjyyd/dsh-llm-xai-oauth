@@ -1,16 +1,11 @@
-import { EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
-import * as dshLlm from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, FinishReason, StreamChunk, ToolCallId, TokenUsage } from '@deepseek-ai/dsh-llm'
+import { EMPTY_RESPONSE_CODE, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { DONE } from './sse.js'
 import type { WireChunk, WireUsage } from './types.js'
 
-// 0.1.1-rc.2 brands tool-call ids via `CallId`; 0.1.2-rc.1 renamed it to
-// `ToolCallId`. Pick whichever constructor the host engine exports, falling
-// back to the identity cast so a future rename cannot crash tool calls.
-const brandToolCallId = (((
-  dshLlm as Record<string, unknown>
-).CallId ?? (dshLlm as Record<string, unknown>).ToolCallId) as ((id: string) => ToolCallId) | undefined)
-  ?? ((id: string) => id as ToolCallId)
+function brandToolCallId(id: string): ReturnType<typeof ToolCallId> {
+  return ToolCallId(id)
+}
 
 interface OpenBlock {
   index: number

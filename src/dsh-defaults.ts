@@ -1,9 +1,11 @@
 /**
  * Persist SuperGrok as the harness default model after a successful login.
  *
- * Uses `ctx.agentDefaultModel.saveSelection` when the service is mounted
- * (writes `$DSH_HOME/settings.yaml` through the settings seam). Falls back to
- * a direct YAML edit of that file when the plugin is running as a CLI.
+ * Uses `ctx.agentDefaultModel.saveSelection` when the service is mounted. On
+ * dsh 0.1.7 that writes the profile patch through the config editor; on 0.1.5
+ * it writes the `agent-default-model` section of `$DSH_HOME/settings.yaml`.
+ * The CLI has no service mounted, so it edits that file directly — 0.1.7
+ * imports it into the profile once, on its first start.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -121,17 +123,13 @@ export async function applyDshDefaultModel(
 ): Promise<'service' | 'file' | 'unchanged'> {
   const onlyIfUnset = options.onlyIfUnset === true
   const service = ctx?.get('agentDefaultModel')
-  const settings = ctx?.get('settings')
-  if (service !== undefined && settings !== undefined) {
+  if (service !== undefined) {
     const current = service.currentSelection()
     if (current.provider === selection.provider && current.model === selection.model) return 'unchanged'
-    if (onlyIfUnset) {
-      // A user-owned section (whatever provider it names) means the user
-      // already picked a default explicitly; do not flip it back to Grok.
-      const doc = (settings as unknown as { document?: unknown }).document
-      const hasUserSection = doc !== null && typeof doc === 'object' && !Array.isArray(doc)
-        && (doc as Record<string, unknown>)['agent-default-model'] !== undefined
-      if (hasUserSection) return 'unchanged'
+    if (onlyIfUnset && (current.provider.length > 0 || current.model.length > 0)) {
+      // Any stored selection, whatever provider it names, means the user
+      // already picked a default; do not flip it back to Grok.
+      return 'unchanged'
     }
     await service.saveSelection({
       provider: selection.provider,

@@ -10,10 +10,11 @@
  * @module dsh-llm-xai-oauth
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { isVolatile } from '@deepseek-ai/cosmokit'
 import z from '@deepseek-ai/schemastery'
 import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
-import { deepEqualJson, installSettingsSection, settingsNamespace } from './dsh-compat.js'
+import { deepEqualJson, installSettingsSection } from './dsh-compat.js'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   DEFAULT_CONTEXT_WINDOW,
@@ -68,7 +69,7 @@ export { applyDshDefaultModel, defaultModelSelection } from './dsh-defaults.js'
 export const name = 'llm-xai-oauth'
 export const inject = ['llm']
 
-const NS = settingsNamespace('llm-xai-oauth')
+const NS = 'llm-xai-oauth'
 const PROVIDER = 'xai'
 
 const DEFAULT_MODELS: XaiCatalogModel[] = [
@@ -123,17 +124,31 @@ const catalogModel = z.object({
   reasoningEfforts: z.array(z.union(['off', 'low', 'medium', 'high', 'xhigh'])),
 })
 
-export const Config = z.object({
-  baseURL: z.string(),
-  apiBaseURL: z.string(),
-  clientVersion: z.string(),
-  clientMode: z.string(),
-  reasoningEffort: z.union(['off', 'low', 'medium', 'high', 'xhigh']),
-  maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_TOKENS),
-  defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
-  models: z.array(catalogModel),
-  streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
-  retryPolicy: RetryPolicySchema,
+/**
+ * Mark a field volatile and keep the caller's view of the schema.
+ *
+ * On dsh 0.1.7 a volatile field updates this running instance without
+ * remounting it, and it is the only kind of field the settings forms edit.
+ * `.volatile()` returns a different schema type on each schemastery version,
+ * so the marker is applied for its runtime effect and the original schema is
+ * what callers see. `plainConfig` dereferences the resulting reference.
+ */
+function live<S extends z>(schema: S): S {
+  const marker = (schema as S & { volatile?: () => S }).volatile
+  return typeof marker === 'function' ? marker.call(schema) : schema
+}
+
+export const Config: z = z.object({
+  baseURL: live(z.string()),
+  apiBaseURL: live(z.string()),
+  clientVersion: live(z.string()),
+  clientMode: live(z.string()),
+  reasoningEffort: live(z.union(['off', 'low', 'medium', 'high', 'xhigh'])),
+  maxTokens: live(z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_TOKENS)),
+  defaultContextWindow: live(z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW)),
+  models: live(z.array(catalogModel)),
+  streamIdleTimeoutMs: live(z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS)),
+  retryPolicy: live(RetryPolicySchema),
 })
 
 function resolveModels(models: readonly XaiCatalogModel[] | undefined): XaiCatalogModel[] {
@@ -156,6 +171,37 @@ function resolveModels(models: readonly XaiCatalogModel[] | undefined): XaiCatal
         : { reasoningEfforts: [...model.reasoningEfforts] },
     }
   })
+}
+
+/**
+ * Read one config snapshot.
+ *
+ * A volatile field (0.1.7) contributes its current snapshot, including an
+ * absent one, which is what lets a settings edit reach the next request. A
+ * plain field contributes only a value that is actually present, so a 0.1.5
+ * section entry does not restate every schema default as if the user set it.
+ */
+export function plainConfig(config: Config): Config {
+  const read = (key: keyof Config): Partial<Config> => {
+    const value = config[key]
+    if (isVolatile(value)) {
+      const current = value.get()
+      return current === undefined ? {} : { [key]: current }
+    }
+    return value === undefined ? {} : { [key]: value }
+  }
+  return {
+    ...read('baseURL'),
+    ...read('apiBaseURL'),
+    ...read('clientVersion'),
+    ...read('clientMode'),
+    ...read('reasoningEffort'),
+    ...read('maxTokens'),
+    ...read('defaultContextWindow'),
+    ...read('models'),
+    ...read('streamIdleTimeoutMs'),
+    ...read('retryPolicy'),
+  }
 }
 
 export function resolveAdapterOptions(config: Config): XaiConnectionOptions {
@@ -186,7 +232,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return undefined
   })
 
-  let current: () => Config = () => config
+  let current: () => Config = () => plainConfig(config)
   let lastRaw: Config | undefined
   let lastGood: XaiConnectionOptions | undefined
   const options = (): XaiConnectionOptions => {
@@ -286,11 +332,29 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     registeredPolicy = policy
   }
 
-  installSettingsSection(ctx, NS, Config, config, {
+  // 0.1.5: the settings section is the live source, and a committed change
+  // re-registers the route when the retry policy moved. 0.1.7 has no section;
+  // the same re-registration listens for the loader's volatile update.
+  installSettingsSection(ctx, NS, Config, plainConfig(config), {
     setSource: (source) => {
-      current = () => source() as Config
+      current = () => plainConfig(source() as Config)
     },
     onChange: ensureRegistrationFacts,
+  })
+  // Declared by the 0.1.7 loader only; 0.1.5 never emits it, and the listener
+  // is harmlessly dormant there. The event name is absent from that host's
+  // cordis augmentation, so the call is widened rather than asserted.
+  ;(ctx as { on: (event: string, listener: () => void) => void }).on('loader/volatile-update', ensureRegistrationFacts)
+
+  // 0.1.7 builds a settings page per plugin unless the plugin opts out. This
+  // one has no custom page, and the call is a no-op where `configure` is absent.
+  const settingsHost = ctx as {
+    inject?: (services: readonly string[], callback: (child: Context) => void) => void
+  }
+  settingsHost.inject?.(['settings'], (child) => {
+    const forms = (child as { settings?: { configure?: (presentation: { auto?: boolean }, owner?: unknown) => () => void } }).settings
+    if (typeof forms?.configure !== 'function') return
+    child.effect(() => forms.configure!({ auto: false }, (ctx as { fiber?: unknown }).fiber))
   })
 
   await ready

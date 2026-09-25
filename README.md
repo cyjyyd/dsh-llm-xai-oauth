@@ -42,7 +42,7 @@ Swap `headless` for `web` or `tui`. **Updates must use `@latest`.** A bare
 ## Setup in five minutes
 
 You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`).
-Verified on `0.1.2-rc.1` and `0.1.5-rc.1` / `0.1.5-rc.2`. `0.1.6-alpha` is not supported; stay on `0.1.5-rc.2`.
+Verified on `0.1.5-rc.1` through `0.1.5-rc.3`, and on `0.1.7-rc.1`. `0.1.2` and the `0.1.6` alphas are not supported.
 
 ### 1. Add the plugin to a profile
 
@@ -152,7 +152,7 @@ Or pass `--provider` / `--model`, or use `/model` in the TUI. At startup the plu
 
 `max` in a DeepSeek-style picker maps to `xhigh`.
 
-Optional plugin settings live under `llm-xai-oauth:` in `$DSH_HOME/settings.yaml` (`baseURL`, `reasoningEffort`, `models`, retry / idle timeout). Change them without restarting; the next request re-resolves.
+Optional plugin settings are `baseURL`, `reasoningEffort`, `models`, and the retry / idle timeout. On `0.1.5` they live under `llm-xai-oauth:` in `$DSH_HOME/settings.yaml`. On `0.1.7` they live in the profile patch and `0.1.7` imports that file once, on its first start. Either way a change reaches the next request without a restart.
 
 Long SuperGrok chats can fill the 500K window and then 400 with a generic `INVALID_REQUEST` because `max_tokens` no longer fits. From 0.1.3 the adapter projects the next prompt from the last usage sample and, when remaining context cannot hold the requested completion, throws `CONTEXT_WINDOW_EXCEEDED` so harness overflow compaction can retry. Compaction / title calls still go through, with `max_tokens` clamped to the remainder.
 

@@ -1,69 +1,47 @@
 /**
- * Dual-stack shims for dsh 0.1.2-rc.1 and 0.1.5-rc.1.
+ * Shims for the two settings surfaces this plugin runs on.
  *
- * 0.1.2-rc.1 removed the free exports `installSettingsSection`,
- * `settingsNamespace` and `deepEqualJson` from @deepseek-ai/dsh-settings:
- * settings section registration moved onto the `settings` service as
- * `SettingsProvider.installSection` (reached via `ctx.inject`, the pattern
- * the harness's own packages use), namespaces are now branded at the type
- * level only, and `deepEqualJson` lives in @deepseek-ai/dsh-util-values.
- * 0.1.5 kept that settings surface and the `LlmAdapter` stream contract this
- * plugin already implements, so the same build runs on either host.
+ * dsh 0.1.5 stores plugin settings in `$DSH_HOME/settings.yaml`, one section
+ * per namespace, and a plugin attaches with `settings.installSection`. dsh
+ * 0.1.7 removed that: settings live in the profile patch, a plugin reads its
+ * own Config, and fields marked `.volatile()` update the running instance
+ * without a reload. `installSettingsSection` detects which surface is mounted
+ * and only registers on the older one; on 0.1.7 it is a no-op because the
+ * caller already reads Config directly.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { SettingsNamespace, SettingsSectionHooks } from '@deepseek-ai/dsh-settings'
-import * as dshSettings from '@deepseek-ai/dsh-settings'
 import type z from '@deepseek-ai/schemastery'
 
-/**
- * 0.1.1-rc.2 wraps namespaces via `settingsNamespace()`; 0.1.2 brands them at
- * the type level and takes the plain string at runtime. A cast covers both.
- */
-export function settingsNamespace(value: string): SettingsNamespace {
-  return value as SettingsNamespace
+/** Hooks the 0.1.5 settings service calls back with. */
+export interface SettingsSectionHooks<T> {
+  /** Receive the thunk returning the currently authoritative value. */
+  setSource(current: () => T): void
+  /** Re-judge facts derived from the source after a committed change. */
+  onChange(): void
 }
 
 /**
- * Register a settings section: 0.1.2-rc.1 moved the free function onto the
- * `settings` service as `installSection`, callable only once that service is
- * injected (plugins apply before it, so `ctx.inject` must defer — same
- * pattern the harness's own packages use); 0.1.1-rc.2 keeps the free
- * function, which defers internally and is safe at apply time.
+ * Attach a settings section on a 0.1.5 host. 0.1.7 has no `installSection`
+ * (its `settings` service only projects Config into forms), so the call
+ * returns and the caller keeps reading the Config it was applied with.
  */
 export function installSettingsSection<T>(
   ctx: Context,
-  ns: SettingsNamespace,
-  schema: z<T>,
+  ns: string,
+  schema: z,
   entry: T,
   hooks: SettingsSectionHooks<T>,
 ): void {
-  const legacy = (dshSettings as {
-    installSettingsSection?: (
-      ctx: Context,
-      ns: SettingsNamespace,
-      schema: z<T>,
-      entry: T,
-      hooks: SettingsSectionHooks<T>,
-    ) => void
-  }).installSettingsSection
-  if (typeof legacy === 'function') {
-    legacy(ctx, ns, schema, entry, hooks)
-    return
-  }
   const host = ctx as {
     inject?: (services: readonly string[], callback: (injected: unknown) => void) => void
   }
-  if (typeof host.inject !== 'function') {
-    throw new Error('dsh-settings: no legacy installSettingsSection and ctx.inject is unavailable')
-  }
+  if (typeof host.inject !== 'function') return
   host.inject(['settings'], (injected) => {
     const holder = injected as { settings?: { installSection?: (...args: unknown[]) => void } }
     const provider = (holder.settings ?? injected) as {
       installSection?: (...args: unknown[]) => void
     }
-    if (typeof provider?.installSection !== 'function') {
-      throw new Error('dsh-settings: settings service has no installSection')
-    }
+    if (typeof provider.installSection !== 'function') return
     provider.installSection(ctx, ns, schema, entry, hooks)
   })
 }

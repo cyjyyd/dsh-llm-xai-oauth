@@ -37,7 +37,7 @@ profile 换成 `web` 或 `tui` 即可。**更新必须带 `@latest`。** 写成�
 
 ## 5 分钟配好
 
-下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.2-rc.1` 与 `0.1.5-rc.1` / `0.1.5-rc.2`），Node.js ≥ 22.19。`0.1.6-alpha` 不支持，请停在 `0.1.5-rc.2`。
+下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.5-rc.1` 至 `0.1.5-rc.3` 与 `0.1.7-rc.1`），Node.js ≥ 22.19。`0.1.2` 与 `0.1.6` alpha 不支持。
 
 ### 1. 把插件装进 profile
 
@@ -148,7 +148,7 @@ agent-default-model:
 
 DeepSeek 风格选择器里的 `max` 会映射成 `xhigh`。
 
-可选配置写在 `$DSH_HOME/settings.yaml` 的 `llm-xai-oauth:`（`baseURL`、`reasoningEffort`、`models`、重试 / 空闲超时）。改完不用重启 dsh，下一次请求再生效。
+可选配置是 `baseURL`、`reasoningEffort`、`models` 和重试 / 空闲超时。`0.1.5` 写在 `$DSH_HOME/settings.yaml` 的 `llm-xai-oauth:` 下；`0.1.7` 写在 profile patch 里，并且首次启动时会把那份旧文件导入一次。两种主机都是改完不用重启，下一次请求再生效。
 
 超长 SuperGrok 会话会把 500K 窗口填满，下一轮 `max_tokens` 装不下时代理常回笼统的 HTTP 400 `INVALID_REQUEST`。从 0.1.3 起，适配器用上一轮用量推算下一次 prompt；剩余上下文装不下请求的补全时，会抛 `CONTEXT_WINDOW_EXCEEDED`，让 harness 走溢出压缩再试。压缩 / 标题请求仍会发出，并把 `max_tokens` 钳到剩余窗口。
 
