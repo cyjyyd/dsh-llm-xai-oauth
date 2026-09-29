@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 export const DEFAULT_DSH_PROVIDER = 'xai'
-export const DEFAULT_DSH_MODEL = 'grok-4.6'
+export const DEFAULT_DSH_MODEL = 'grok-4.7'
 export const DEFAULT_DSH_REASONING_EFFORT = 'high'
 
 export interface DshDefaultModel {

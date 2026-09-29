@@ -1,11 +1,19 @@
 import { spawn } from 'node:child_process'
 
 /**
+ * Whether this host may launch a browser at all. Set GROK_BRIDGE_NO_BROWSER=1
+ * on SSH / CI / headless hosts so the login prints its URL instead.
+ */
+export function browserAllowed(): boolean {
+  return process.env.GROK_BRIDGE_NO_BROWSER !== '1' && process.env.GROK_BRIDGE_NO_BROWSER !== 'true'
+}
+
+/**
  * Best-effort open of the device-login page. Disabled with
  * GROK_BRIDGE_NO_BROWSER=1 so SSH / CI / headless hosts print the URL instead.
  */
 export function openBrowser(url: string): boolean {
-  if (process.env.GROK_BRIDGE_NO_BROWSER === '1' || process.env.GROK_BRIDGE_NO_BROWSER === 'true') {
+  if (!browserAllowed()) {
     return false
   }
   try {

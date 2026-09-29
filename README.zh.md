@@ -6,7 +6,7 @@
 [![dshfind](https://dshfind.com/api/badge/cyjyyd/dsh-llm-xai-oauth)](https://dshfind.com/zh/plugins/cyjyyd/dsh-llm-xai-oauth?ref=badge)
 
 已经在付 SuperGrok / X Premium 的话，用这个插件把订阅接进 DeepSeek Harness：
-原生 `xai` 路由、`grok-4.6`、设备码登录、token 刷新不依赖某个 TUI 开着。不需要 xAI API Key。
+原生 `xai` 路由、`grok-4.7`、设备码登录、token 刷新不依赖某个 TUI 开着。不需要 xAI API Key。
 
 **headless、web、任意终端 profile 都能用。** SSH 终端 [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui) 可以叠在上面，不是前置条件。
 
@@ -22,7 +22,7 @@ English: [README.md](README.md)
 dsh plugin --profile headless add dsh-llm-xai-oauth@latest
 npx dsh-llm-xai-oauth login
 npx dsh-llm-xai-oauth daemon --install
-dsh --profile headless --provider xai --model grok-4.6
+dsh --profile headless --provider xai --model grok-4.7
 ```
 
 profile 换成 `web` 或 `tui` 即可。**更新必须带 `@latest`。** 写成裸的 `add dsh-llm-xai-oauth` 时，pnpm 会沿用 lockfile 里钉死的旧版。
@@ -37,7 +37,7 @@ profile 换成 `web` 或 `tui` 即可。**更新必须带 `@latest`。** 写成�
 
 ## 5 分钟配好
 
-下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.5-rc.1` 至 `0.1.5-rc.3` 与 `0.1.7-rc.1`），Node.js ≥ 22.19。`0.1.2` 与 `0.1.6` alpha 不支持。
+下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.5-rc.1` 至 `0.1.5-rc.3`、`0.1.7-rc.1`/`0.1.7-rc.2`、`0.2.0-rc.1`/`0.2.0-rc.2`（桌面端安装包所在的版本线）），Node.js ≥ 22.19。`0.1.2` 与 `0.1.6` alpha 不支持。
 
 ### 1. 把插件装进 profile
 
@@ -70,10 +70,30 @@ npx dsh-llm-xai-oauth login --force
 终端会打印一个 URL 和用户码。用浏览器打开、授权 SuperGrok / X Premium。成功后写入：
 
 - token：`~/.grok-bridge/auth.json`（权限 `0600`）
-- dsh 默认模型：`$DSH_HOME/settings.yaml` 的 `agent-default-model` → `xai` / `grok-4.6`  
+- dsh 默认模型：`$DSH_HOME/settings.yaml` 的 `agent-default-model` → `xai` / `grok-4.7`  
   （如果已经是 `xai`，不会改你选的 grok 模型和思考强度）
 
 没有 TTY 的 headless / CI 不会提示登录。TTY 上也可以设 `DSH_XAI_OAUTH_NO_LOGIN=1` 跳过。
+
+### Windows 与桌面端：可视化首次引导
+
+Windows 桌面端不带控制台，只在终端里打印设备码等于没人看得到。所以在 `win32` 上插件改为在本地起一个页面、用默认浏览器打开，在同一页里完成设备码授权：
+
+- 页面上直接给出设备码、复制按钮和「打开授权页面」按钮；
+- 轮询授权状态，xAI 一确认就变成「已连接」，不用手动刷新；
+- 浅色 / 深色两套主题，和 DeepSeek Harness 桌面端一致。
+
+页面只监听 `127.0.0.1` 的随机端口，并且挂在一条 128 位随机路径下，本机其他进程读不到待授权的设备码。除 xAI 接口外不依赖任何外部资源。
+
+任意平台都可以手动开启或关闭：
+
+```bash
+npx dsh-llm-xai-oauth login --ui    # 在 Linux/macOS 上也走可视化引导
+GROK_BRIDGE_NO_BROWSER=1 npx dsh-llm-xai-oauth login   # 完全不打开浏览器
+```
+
+如果打不开浏览器，引导页地址会打到 stderr，可以自己复制去打开。
+
 
 看当前 token 还剩多久：
 
@@ -122,7 +142,7 @@ npx dsh-llm-xai-oauth refresh --force
 # 先看默认模型是不是 xai
 grep -A3 agent-default-model ~/.dsh/settings.yaml
 
-dsh --profile tui --provider xai --model grok-4.6
+dsh --profile tui --provider xai --model grok-4.7
 dsh --profile headless "Reply with exactly: xai-harness-ok. Do not use tools."
 ```
 
@@ -134,15 +154,15 @@ dsh --profile headless "Reply with exactly: xai-harness-ok. Do not use tools."
 # $DSH_HOME/settings.yaml
 agent-default-model:
   provider: xai
-  model: grok-4.6
+  model: grok-4.7
   reasoningEffort: high
 ```
 
-或启动参数 / TUI `/model`。启动时插件会用当前 token 打 `GET {baseURL}/models`，`/model` 列表以订阅实时目录为准（现在一般是 `grok-4.6` 带 xhigh、`grok-4.5` 到 high）。静态回退仍含 `grok-4.3`。
+或启动参数 / TUI `/model`。启动时插件会用当前 token 打 `GET {baseURL}/models`，`/model` 列表以订阅实时目录为准（现在一般是 `grok-4.7` 带 xhigh、`grok-4.5` 到 high）。静态回退仍含 `grok-4.3`。
 
 | 模型 | 上下文 | 输出上限 | 思考强度 |
 | --- | --- | --- | --- |
-| `grok-4.6` | 500K | 64K | off / low / medium / high / xhigh |
+| `grok-4.7` | 500K | 64K | off / low / medium / high / xhigh |
 | `grok-4.5` | 500K | 64K | off / low / medium / high |
 | `grok-4.3` | 1M | 30K | off / low / medium / high |
 
@@ -177,7 +197,7 @@ journalctl --user -u dsh-llm-xai-oauth.service -n 50
 
 - 不是 xAI API Key 提供商。计量接口 `api.x.ai` 仍走通用 catalog。
 - 不是 Codex / Claude / Copilot 聚合器。
-- 不是 Web「一键登录」设置页。TTY device login + 复用本机 token，是给 SSH / headless 用的。
+- 不是 Web「一键登录」设置页，也没有 OAuth 回调端口。设备码授权本身可以再复用本机已有 token；Windows 上的可视化引导只是把同一个设备码放进浏览器页面，方便没有控制台的桌面端。
 - 不会 `registerConfigurableProviders('xai')`，因为 `llm-pi-ai` 已经占用了这个目录名。本包只拥有**实际调用路由**。
 
 ## License

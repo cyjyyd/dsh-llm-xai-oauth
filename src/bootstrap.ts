@@ -5,7 +5,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { applyDshDefaultModel, defaultModelSelection } from './dsh-defaults.js'
 import { searchLocalTokens } from './discover.js'
-import { canPromptLogin, loginDisabledByEnv, runDeviceLogin } from './login-flow.js'
+import { canPromptLogin, loginDisabledByEnv, loginPrefersVisual, runDeviceLogin } from './login-flow.js'
+import { runVisualDeviceLogin } from './onboarding.js'
 import { adoptTokens, loadCanonicalTokens } from './oauth.js'
 import type { OAuthConfig, StoredTokens } from './oauth.js'
 
@@ -24,6 +25,8 @@ export interface BootstrapOptions {
     force: boolean,
   ) => Promise<'service' | 'file' | 'unchanged'>
   interactive?: boolean
+  /** Force the visual guide on or off instead of following the platform. */
+  visual?: boolean
   /** Override the home directory used for the bounded local token search. */
   home?: string
 }
@@ -85,7 +88,10 @@ export async function bootstrapXaiOAuth(
     return { tokens, searched: true, loggedIn: false, dsh }
   }
 
-  const interactive = options.interactive ?? (canPromptLogin() && !loginDisabledByEnv())
+  const visual = loginPrefersVisual({ visual: options.visual })
+  // The visual guide needs no TTY: it is how the Windows desktop client, which
+  // attaches no console, completes a first-run login.
+  const interactive = options.interactive ?? ((canPromptLogin() || visual) && !loginDisabledByEnv())
   if (!interactive) {
     const reason = loginDisabledByEnv()
       ? 'DSH_XAI_OAUTH_NO_LOGIN is set; skipped the device-code login'
@@ -94,10 +100,15 @@ export async function bootstrapXaiOAuth(
     return { tokens: null, searched: true, loggedIn: false, dsh: 'skipped', reason }
   }
 
-  log.info('llm-xai-oauth: no reusable token found; starting xAI device login')
-  const login = options.login ?? ((oauth: OAuthConfig) => runDeviceLogin(oauth))
+  log.info(visual
+    ? 'llm-xai-oauth: no reusable token found; opening the Grok sign-in guide'
+    : 'llm-xai-oauth: no reusable token found; starting xAI device login')
+  const login = options.login ?? (visual
+    ? (oauth: OAuthConfig) => runVisualDeviceLogin(oauth)
+    : (oauth: OAuthConfig) => runDeviceLogin(oauth))
   const logged = await login(config)
   const dsh = await writeDshDefault(ctx, true, options.applyDefault, log)
-  log.info('llm-xai-oauth: SuperGrok login complete; dsh default model set to xai / grok-4.6')
+  const selection = defaultModelSelection()
+  log.info(`llm-xai-oauth: SuperGrok login complete; dsh default model set to ${selection.provider} / ${selection.model}`)
   return { tokens: logged, searched: true, loggedIn: true, dsh }
 }

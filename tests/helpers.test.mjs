@@ -78,7 +78,8 @@ test('normalizeTokens reads grok-bridge and grok-cli shapes', () => {
 test('resolveAdapterOptions defaults to the Grok subscription proxy', () => {
   const options = resolveAdapterOptions({})
   assert.equal(options.baseURL, 'https://cli-chat-proxy.grok.com/v1')
-  assert.equal(options.models[0]?.id, 'grok-4.6')
+  assert.equal(options.models[0]?.id, 'grok-4.7')
+  assert.equal(options.models[0]?.contextWindow, 500_000)
   assert.equal(options.defaults.reasoningEffort, 'high')
 })
 
@@ -479,7 +480,163 @@ test('XaiAdapter declares no provider image pricing', () => {
   assert.equal(adapter.imageRequestPricing('xai', 'grok-4.6'), undefined)
 })
 
-test('manifest declares dshReleases for the 0.1.5 line and 0.1.7-rc.1', async () => {
+function adapterWith(options, liveCatalog) {
+  return new XaiAdapter({
+    options: () => resolveAdapterOptions(options),
+    resolveAccessToken: async () => 'unused',
+    ...liveCatalog === undefined ? {} : { liveCatalog },
+  })
+}
+
+test('resolveModel reports grok-4.7 with its own 500K window, not a generic default', async () => {
+  const adapter = adapterWith({})
+  const resolved = await adapter.resolveModel('xai', 'grok-4.7')
+  // A route that omits `context` leaves the harness on its own generic window,
+  // which is the 256K fallback this catalog entry exists to prevent.
+  assert.equal(resolved.context?.contextWindow, 500_000)
+  assert.equal(resolved.defaultMaxTokens, 64_000)
+  assert.equal(resolved.name, 'Grok 4.7')
+  assert.deepEqual(resolved.inputModalities, ['text', 'image'])
+  assert.deepEqual(
+    resolved.reasoning?.efforts.map(effort => effort.id),
+    ['off', 'low', 'medium', 'high', 'xhigh'],
+  )
+  assert.equal(resolved.reasoning?.defaultEffort, 'high')
+})
+
+test('listModels advertises grok-4.7 first so pickers land on the new default', async () => {
+  const adapter = adapterWith({})
+  const models = await adapter.listModels('xai')
+  assert.equal(models[0]?.id, 'grok-4.7')
+  assert.equal(models[0]?.name, 'Grok 4.7')
+})
+
+test('resolveModel still names a window for a model no catalog knows', async () => {
+  const adapter = adapterWith({})
+  const resolved = await adapter.resolveModel('xai', 'grok-9.9-unlisted')
+  assert.equal(resolved.context?.contextWindow, 500_000)
+})
+
+test('resolveModel keeps 500K when xAI lists grok-4.7 without a window', async () => {
+  // The subscription endpoint's /models payload names the model but discloses
+  // no context_window. Without the catalog entry surviving that merge the route
+  // reports nothing and the client falls back to its own 256K default.
+  const adapter = adapterWith({}, () => mergeXaiCatalog(
+    [{
+      id: 'grok-4.7',
+      name: 'Grok 4.7',
+      contextWindow: 500_000,
+      maxTokens: 64_000,
+      inputModalities: ['text', 'image'],
+      reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh'],
+    }],
+    [{ id: 'grok-4.7', name: 'grok-4.7', inputModalities: ['text', 'image'] }],
+  ))
+  const resolved = await adapter.resolveModel('xai', 'grok-4.7')
+  assert.equal(resolved.context?.contextWindow, 500_000)
+  assert.equal(resolved.context?.contextWindow === 256_000, false)
+  assert.equal(resolved.defaultMaxTokens, 64_000)
+})
+
+test('a live listing without context_window keeps the declared grok-4.7 window', () => {
+  // xAI's /models listing does not disclose context_window, so the catalog
+  // entry has to survive the merge or the route loses its window again.
+  const merged = mergeXaiCatalog(
+    [{ id: 'grok-4.7', contextWindow: 500_000, maxTokens: 64_000 }],
+    [{ id: 'grok-4.7', name: 'grok-4.7' }],
+  )
+  assert.equal(merged[0]?.contextWindow, 500_000)
+  assert.equal(merged[0]?.maxTokens, 64_000)
+})
+
+test('a live listing may still override the declared window', () => {
+  const merged = mergeXaiCatalog(
+    [{ id: 'grok-4.7', contextWindow: 500_000 }],
+    [{ id: 'grok-4.7', contextWindow: 1_000_000 }],
+  )
+  assert.equal(merged[0]?.contextWindow, 1_000_000)
+})
+
+test('the xAI login guide is chosen on Windows and stays off elsewhere', async () => {
+  const { loginPrefersVisual } = await import('../lib/login-flow.js')
+  assert.equal(loginPrefersVisual({ platform: 'win32' }), true)
+  assert.equal(loginPrefersVisual({ platform: 'linux' }), false)
+  assert.equal(loginPrefersVisual({ platform: 'darwin' }), false)
+  assert.equal(loginPrefersVisual({ platform: 'win32', visual: false }), false)
+  assert.equal(loginPrefersVisual({ platform: 'linux', visual: true }), true)
+})
+
+test('the login guide renders the device code and escapes untrusted fields', async () => {
+  const { renderOnboardingPage } = await import('../lib/onboarding.js')
+  const html = renderOnboardingPage({
+    status: 'waiting',
+    userCode: 'ABCD-1234',
+    verificationUri: 'https://auth.x.ai/device',
+    authFile: 'C:\\Users\\me\\.grok-bridge\\auth.json',
+    detail: '',
+    expiresAt: Date.now() + 60_000,
+  }, '/token')
+  assert.match(html, /ABCD-1234/u)
+  assert.match(html, /https:\/\/auth\.x\.ai\/device/u)
+  assert.match(html, /Content-Security-Policy/u)
+  // The official desktop palette, so the first-run page does not look foreign.
+  assert.match(html, /--canvas:#f9fafb/u)
+  assert.match(html, /--ink:#353638/u)
+  // Nothing external may be required for the page to render.
+  assert.doesNotMatch(html, /<(?:img|link|script)[^>]+(?:src|href)="https?:/u)
+
+  const injected = renderOnboardingPage({
+    status: 'error',
+    userCode: '<script>alert(1)</script>',
+    verificationUri: 'https://auth.x.ai/device',
+    authFile: 'auth.json',
+    detail: '<img onerror=alert(1)>',
+    expiresAt: 0,
+  }, '/token')
+  assert.doesNotMatch(injected, /<script>alert\(1\)<\/script>/u)
+  assert.match(injected, /&lt;script&gt;/u)
+})
+
+test('the guide server answers only under its own path token', async () => {
+  const { startOnboarding } = await import('../lib/onboarding.js')
+  const handle = await startOnboarding({
+    authBase: 'https://auth.x.ai',
+    tokenPath: '/token',
+    deviceCodePath: '/device',
+    clientId: 'client',
+    scope: 'scope',
+    authFile: '/tmp/xai-auth.json',
+    grokCliAuthFile: '/tmp/grok-auth.json',
+    configFile: '/tmp/config.json',
+  }, {
+    // An already-expired grant settles the poll loop without any network call.
+    device: {
+      deviceCode: 'device',
+      userCode: 'WXYZ-9876',
+      verificationUri: 'https://auth.x.ai/device',
+      intervalSeconds: 1,
+      expiresInSeconds: 0,
+    },
+    open: () => true,
+  })
+  try {
+    const page = await fetch(handle.url)
+    assert.equal(page.status, 200)
+    assert.match(await page.text(), /WXYZ-9876/u)
+
+    const state = await fetch(new URL('api/state', handle.url))
+    assert.equal(state.status, 200)
+    assert.equal((await state.json()).status, 'expired')
+
+    const outside = await fetch(new URL('/', handle.url))
+    assert.equal(outside.status, 404)
+    assert.match(handle.url, /^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\/$/u)
+  } finally {
+    await handle.close()
+  }
+})
+
+test('manifest declares dshReleases for every verified dsh line', async () => {
   const { readFile } = await import('node:fs/promises')
   const { dirname, join } = await import('node:path')
   const { fileURLToPath } = await import('node:url')
@@ -494,6 +651,9 @@ test('manifest declares dshReleases for the 0.1.5 line and 0.1.7-rc.1', async ()
   assert.equal(releases['0.1.5-rc.2'], 'compatible')
   assert.equal(releases['0.1.5-rc.3'], 'compatible')
   assert.equal(releases['0.1.7-rc.1'], 'compatible')
+  assert.equal(releases['0.1.7-rc.2'], 'compatible')
+  assert.equal(releases['0.2.0-rc.1'], 'compatible')
+  assert.equal(releases['0.2.0-rc.2'], 'compatible')
   assert.equal(manifest.engines?.node, '>=22.19')
   // dsh 0.1.7 checks these peers with `semver.satisfies` and
   // `includePrerelease: true`, so one `>=0.1.5-rc.1 <0.1.8` comparator would
@@ -506,7 +666,13 @@ test('manifest declares dshReleases for the 0.1.5 line and 0.1.7-rc.1', async ()
   assert.equal(inRange('0.1.5-rc.2'), true)
   assert.equal(inRange('0.1.5-rc.3'), true)
   assert.equal(inRange('0.1.7-rc.1'), true)
+  assert.equal(inRange('0.1.7-rc.2'), true)
+  assert.equal(inRange('0.2.0-rc.1'), true)
+  assert.equal(inRange('0.2.0-rc.2'), true)
+  // The 0.2.0 line is admitted so the stable desktop build resolves too.
+  assert.equal(inRange('0.2.0'), true)
   assert.equal(inRange('0.1.5'), true)
+  assert.equal(inRange('0.1.7'), true)
   assert.equal(inRange('0.1.2-rc.1'), false)
   assert.equal(inRange('0.1.5-alpha.1'), false)
   assert.equal(inRange('0.1.5-alpha.2'), false)
@@ -514,10 +680,16 @@ test('manifest declares dshReleases for the 0.1.5 line and 0.1.7-rc.1', async ()
   assert.equal(inRange('0.1.6'), false)
   assert.equal(inRange('0.1.7-alpha.1'), false)
   assert.equal(inRange('0.1.7-alpha.2'), false)
-  assert.equal(inRange('0.1.7-rc.2'), false)
-  assert.equal(semver.maxSatisfying(['0.1.5-rc.3', '0.1.7-rc.1'], range, { includePrerelease: true }), '0.1.7-rc.1')
+  assert.equal(inRange('0.2.0-alpha.1'), false)
+  assert.equal(inRange('0.2.1-alpha.1'), false)
+  assert.equal(inRange('0.2.1'), false)
+  assert.equal(inRange('0.3.0-rc.1'), false)
+  assert.equal(
+    semver.maxSatisfying(['0.1.5-rc.3', '0.2.0-rc.2'], range, { includePrerelease: true }),
+    '0.2.0-rc.2',
+  )
   // Every dsh peer shares that range, so the same declaration satisfies the
-  // 0.1.7 install-time check and a 0.1.5-rc host.
+  // install-time check on all three verified hosts.
   for (const [name, peerRange] of Object.entries(manifest.peerDependencies ?? {})) {
     if (name === '@deepseek-ai/cordis') continue
     assert.match(name, /^@deepseek-ai\/dsh-/u)

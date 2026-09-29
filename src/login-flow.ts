@@ -1,7 +1,8 @@
 /**
  * Interactive xAI device-code login, shared by the CLI and plugin bootstrap.
  */
-import { openBrowser } from './browser.js'
+import { openBrowser, browserAllowed } from './browser.js'
+import { prefersVisualOnboarding } from './onboarding.js'
 import { pollDeviceAuth, startDeviceAuth } from './oauth.js'
 import type { DeviceCode, OAuthConfig, StoredTokens } from './oauth.js'
 
@@ -50,6 +51,21 @@ export async function runDeviceLogin(
 
 export function canPromptLogin(): boolean {
   return process.stdout.isTTY === true || process.stderr.isTTY === true
+}
+
+/**
+ * Pick the login surface for this host.
+ *
+ * Windows is served by the visual guide because the desktop client does not
+ * attach a console: the terminal-only flow would never print its code. Every
+ * other host keeps the terminal flow, and a host that cannot open a browser
+ * at all still needs one — the guide renders the URL on stderr.
+ */
+export function loginPrefersVisual(
+  options: { visual?: boolean; platform?: NodeJS.Platform } = {},
+): boolean {
+  const visual = options.visual ?? prefersVisualOnboarding(options.platform ?? process.platform)
+  return visual && browserAllowed()
 }
 
 export function loginDisabledByEnv(): boolean {

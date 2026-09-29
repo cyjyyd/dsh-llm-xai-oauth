@@ -10,6 +10,7 @@
 import { applyDshDefaultModel, dshSettingsPath } from './dsh-defaults.js'
 import { bootstrapXaiOAuth } from './bootstrap.js'
 import { canPromptLogin, runDeviceLogin } from './login-flow.js'
+import { runVisualDeviceLogin } from './onboarding.js'
 import {
   defaultOAuthConfig,
   loadStoredTokens,
@@ -27,10 +28,15 @@ Usage:
   dsh-llm-xai-oauth                 search for a token, log in if needed
   dsh-llm-xai-oauth login           same as above
   dsh-llm-xai-oauth login --force   ignore an existing token and re-authorize
+  dsh-llm-xai-oauth login --ui      guide the login from a browser page
   dsh-llm-xai-oauth refresh         refresh now if the access token is due
   dsh-llm-xai-oauth refresh --force refresh even when the token is still valid
   dsh-llm-xai-oauth status          print where the token lives and when it expires
   dsh-llm-xai-oauth daemon          keep refreshing in the background (no dsh)
+
+--ui serves the device code from a local page and opens the browser, which is
+how the Windows desktop client signs in; it is used automatically on Windows.
+Set GROK_BRIDGE_NO_BROWSER=1 to print the URL instead of opening a browser.
 
 The daemon writes ~/.grok-bridge/auth.json every time the access token is
 within 5 minutes of expiry. Install it with:
@@ -71,16 +77,18 @@ async function printStatus(): Promise<number> {
   return 0
 }
 
-async function runLogin(force: boolean): Promise<number> {
+async function runLogin(force: boolean, visual = false): Promise<number> {
   const config = defaultOAuthConfig()
   if (force) {
-    await runDeviceLogin(config)
+    if (visual) await runVisualDeviceLogin(config)
+    else await runDeviceLogin(config)
     const written = await applyDshDefaultModel(undefined)
     process.stdout.write(`dsh default model: ${written} (${dshSettingsPath()})\n`)
     return 0
   }
   const result = await bootstrapXaiOAuth(config, undefined, {
-    interactive: canPromptLogin(),
+    visual,
+    interactive: visual || canPromptLogin(),
   })
   if (result.tokens === null) {
     process.stderr.write(`${result.reason ?? 'xAI OAuth is not configured'}\n`)
@@ -247,9 +255,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const command = argv.find(arg => !arg.startsWith('-')) ?? 'login'
   const rest = argv.filter(arg => arg !== command)
   const force = hasFlag(rest, '--force')
+  const visual = hasFlag(rest, '--ui')
   switch (command) {
     case 'login':
-      return runLogin(force)
+      return runLogin(force, visual)
     case 'refresh':
       return runRefresh(force)
     case 'status':

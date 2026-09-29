@@ -38,7 +38,7 @@ import {
 import type { XaiReasoningEffort } from './serialize.js'
 import { fetch as undiciFetch } from 'undici'
 
-export { XaiAdapter } from './adapter.js'
+export { XaiAdapter, catalogModelFromListing, mergeXaiCatalog } from './adapter.js'
 export type { XaiAdapterOptions, XaiCatalogModel, XaiConnectionOptions } from './adapter.js'
 export {
   estimateRequestTokens,
@@ -63,6 +63,8 @@ export {
 } from './oauth.js'
 export { main as cliMain, runRefreshDaemon } from './cli.js'
 export { bootstrapXaiOAuth } from './bootstrap.js'
+export { renderOnboardingPage, runVisualDeviceLogin, startOnboarding } from './onboarding.js'
+export type { OnboardingHandle, OnboardingOptions } from './onboarding.js'
 export { searchLocalTokens } from './discover.js'
 export { applyDshDefaultModel, defaultModelSelection } from './dsh-defaults.js'
 
@@ -73,6 +75,16 @@ const NS = 'llm-xai-oauth'
 const PROVIDER = 'xai'
 
 const DEFAULT_MODELS: XaiCatalogModel[] = [
+  {
+    id: 'grok-4.7',
+    name: 'Grok 4.7',
+    // Declared so the route never falls back to the harness default window.
+    contextWindow: 500_000,
+    maxTokens: 64_000,
+    inputModalities: ['text', 'image'],
+    reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh'],
+    defaultEffort: 'high',
+  },
   {
     id: 'grok-4.6',
     name: 'Grok 4.6',

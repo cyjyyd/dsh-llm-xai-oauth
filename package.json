@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-xai-oauth",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Use a SuperGrok / X Premium subscription inside DeepSeek Harness. Device-code OAuth, grok-bridge token reuse, no xAI API key. Works in headless, web, and any TUI.",
   "keywords": [
     "deepseek-harness",
@@ -52,12 +52,15 @@
       "patch": "./cordis.patch.yml"
     },
     "compatibility": {
-      "dsh": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2",
+      "dsh": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.1 <0.2.0-rc.2 || >=0.2.0-rc.2 <0.2.1-0",
       "dshReleases": {
         "0.1.5-rc.1": "compatible",
         "0.1.5-rc.2": "compatible",
         "0.1.5-rc.3": "compatible",
-        "0.1.7-rc.1": "compatible"
+        "0.1.7-rc.1": "compatible",
+        "0.1.7-rc.2": "compatible",
+        "0.2.0-rc.1": "compatible",
+        "0.2.0-rc.2": "compatible"
       },
       "profiles": [
         "tui",
@@ -91,21 +94,21 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-attachment": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2",
-    "@deepseek-ai/dsh-invariants": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2",
-    "@deepseek-ai/dsh-launch-environment": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2",
-    "@deepseek-ai/dsh-llm": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2",
-    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2",
-    "@deepseek-ai/dsh-timeout": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2"
+    "@deepseek-ai/dsh-attachment": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.1 <0.2.0-rc.2 || >=0.2.0-rc.2 <0.2.1-0",
+    "@deepseek-ai/dsh-invariants": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.1 <0.2.0-rc.2 || >=0.2.0-rc.2 <0.2.1-0",
+    "@deepseek-ai/dsh-launch-environment": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.1 <0.2.0-rc.2 || >=0.2.0-rc.2 <0.2.1-0",
+    "@deepseek-ai/dsh-llm": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.1 <0.2.0-rc.2 || >=0.2.0-rc.2 <0.2.1-0",
+    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.1 <0.2.0-rc.2 || >=0.2.0-rc.2 <0.2.1-0",
+    "@deepseek-ai/dsh-timeout": ">=0.1.5-rc.1 <0.1.5-rc.2 || >=0.1.5-rc.2 <0.1.5-rc.3 || >=0.1.5-rc.3 <0.1.6-0 || >=0.1.7-rc.1 <0.1.7-rc.2 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.1 <0.2.0-rc.2 || >=0.2.0-rc.2 <0.2.1-0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-attachment": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-invariants": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-launch-environment": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-llm": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-settings": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-timeout": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-attachment": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-invariants": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-launch-environment": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-settings": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-timeout": "0.2.0-rc.2",
     "@types/node": "^24.0.0",
     "semver": "^7.8.5",
     "typescript": "^5.9.0"

@@ -6,7 +6,7 @@
 [![dshfind](https://dshfind.com/api/badge/cyjyyd/dsh-llm-xai-oauth)](https://dshfind.com/en/plugins/cyjyyd/dsh-llm-xai-oauth?ref=badge)
 
 You already pay for SuperGrok / X Premium. This plugin puts that subscription
-into DeepSeek Harness as a live `xai` route: `grok-4.6`, device-code login,
+into DeepSeek Harness as a live `xai` route: `grok-4.7`, device-code login,
 token refresh that does not depend on a TUI being open. No xAI API key.
 
 Works in **headless**, **web**, and any terminal profile. The SSH TUI
@@ -25,7 +25,7 @@ Install from **npm** (do not use the GitHub source unless you are developing):
 dsh plugin --profile headless add dsh-llm-xai-oauth@latest
 npx dsh-llm-xai-oauth login
 npx dsh-llm-xai-oauth daemon --install
-dsh --profile headless --provider xai --model grok-4.6
+dsh --profile headless --provider xai --model grok-4.7
 ```
 
 Swap `headless` for `web` or `tui`. **Updates must use `@latest`.** A bare
@@ -42,7 +42,8 @@ Swap `headless` for `web` or `tui`. **Updates must use `@latest`.** A bare
 ## Setup in five minutes
 
 You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`).
-Verified on `0.1.5-rc.1` through `0.1.5-rc.3`, and on `0.1.7-rc.1`. `0.1.2` and the `0.1.6` alphas are not supported.
+Verified on `0.1.5-rc.1` through `0.1.5-rc.3`, on `0.1.7-rc.1` and `0.1.7-rc.2`, and on `0.2.0-rc.1` and `0.2.0-rc.2` — the line the
+Windows and macOS desktop builds ship. `0.1.2` and the `0.1.6` alphas are not supported.
 
 ### 1. Add the plugin to a profile
 
@@ -75,10 +76,29 @@ npx dsh-llm-xai-oauth login --force
 The CLI prints a URL and a user code. Authorize SuperGrok / X Premium in the browser. On success it writes:
 
 - token: `~/.grok-bridge/auth.json` (`0600`)
-- dsh default model: `$DSH_HOME/settings.yaml` `agent-default-model` → `xai` / `grok-4.6`  
+- dsh default model: `$DSH_HOME/settings.yaml` `agent-default-model` → `xai` / `grok-4.7`  
   (if that section is already `xai`, your grok model and effort are left alone)
 
 Headless / CI hosts without a TTY skip the prompt. Set `DSH_XAI_OAUTH_NO_LOGIN=1` to skip it even on a TTY.
+
+### Windows and the desktop app: visual first-run guide
+
+The Windows desktop build ships no console, so a terminal-only login would print its device code where nobody can read it. On `win32` the plugin serves a local page instead, opens it in the default browser, and completes the same device-code grant there:
+
+- the device code, a copy button, and an **Open the authorization page** button;
+- live status that flips to *connected* the moment xAI hands back tokens, with no manual refresh;
+- light and dark themes, matching the DeepSeek Harness desktop client.
+
+The page is served from `127.0.0.1` on an ephemeral port under a random 128-bit path, so no other local process can read the pending code. It pulls in no external asset and needs no network beyond the xAI endpoints.
+
+Force it on any platform, or suppress it:
+
+```bash
+npx dsh-llm-xai-oauth login --ui    # serve the guide even on Linux/macOS
+GROK_BRIDGE_NO_BROWSER=1 npx dsh-llm-xai-oauth login   # never launch a browser
+```
+
+When no browser can be launched, the guide's URL is printed to stderr so you can open it yourself.
 
 Check remaining lifetime:
 
@@ -126,7 +146,7 @@ npx dsh-llm-xai-oauth refresh --force
 ```bash
 grep -A3 agent-default-model ~/.dsh/settings.yaml
 
-dsh --profile tui --provider xai --model grok-4.6
+dsh --profile tui --provider xai --model grok-4.7
 dsh --profile headless "Reply with exactly: xai-harness-ok. Do not use tools."
 ```
 
@@ -138,15 +158,15 @@ In [dsh-ssh-tui](https://github.com/cyjyyd/dsh-ssh-tui): `/model` picks Grok; `/
 # $DSH_HOME/settings.yaml
 agent-default-model:
   provider: xai
-  model: grok-4.6
+  model: grok-4.7
   reasoningEffort: high
 ```
 
-Or pass `--provider` / `--model`, or use `/model` in the TUI. At startup the plugin calls `GET {baseURL}/models` with the current token; `/model` prefers that live catalog (currently `grok-4.6` with xhigh, `grok-4.5` up to high). The static fallback still lists `grok-4.3`.
+Or pass `--provider` / `--model`, or use `/model` in the TUI. At startup the plugin calls `GET {baseURL}/models` with the current token; `/model` prefers that live catalog (currently `grok-4.7` with xhigh, `grok-4.5` up to high). The static fallback still lists `grok-4.3`.
 
 | Model | Context | Output cap | Reasoning efforts |
 | --- | --- | --- | --- |
-| `grok-4.6` | 500K | 64K | off / low / medium / high / xhigh |
+| `grok-4.7` | 500K | 64K | off / low / medium / high / xhigh |
 | `grok-4.5` | 500K | 64K | off / low / medium / high |
 | `grok-4.3` | 1M | 30K | off / low / medium / high |
 
@@ -191,7 +211,7 @@ Override client / endpoints only when xAI changes them:
 
 - Not an xAI API-key provider. Metered `api.x.ai` stays on the generic catalog.
 - Not a Codex / Claude / Copilot aggregator.
-- Not a Web “one-click login” settings card. Device login is CLI / TTY.
+- Not a Web “one-click login” settings card, and no OAuth redirect port is opened. Device authorization stays the mechanism; the Windows guide merely renders that code in a browser page for hosts without a console.
 - Does not `registerConfigurableProviders('xai')`; `llm-pi-ai` already owns that catalog key. This package owns the **live adapter route**.
 
 ## Layout
@@ -200,6 +220,7 @@ Override client / endpoints only when xAI changes them:
 src/index.ts        Cordis plugin: search / login / register the xai route
 src/cli.ts          login / status / refresh / daemon
 src/bootstrap.ts    local token search, device login, dsh default model
+src/onboarding.ts   browser guide for the first-run device login (Windows)
 src/oauth.ts        load / refresh / device-code
 src/adapter.ts      fetch + SSE chat-completions adapter (retries once on 401)
 src/context-budget.ts  project remaining context and trip harness overflow compaction
