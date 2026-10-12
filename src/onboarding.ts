@@ -25,7 +25,7 @@ export interface OnboardingOptions {
   /** Reuse an existing device grant instead of requesting a new one. */
   device?: DeviceCode
   /** Open the guide in the default browser as soon as it is listening. */
-  open?: (url: string) => boolean
+  open?: (url: string) => boolean | Promise<boolean>
   /** Report the guide URL on hosts that cannot open a browser. */
   announce?: (url: string) => void
   signal?: AbortSignal
@@ -51,6 +51,7 @@ interface ViewState {
 }
 
 const GRANT_ERROR = 'The authorization request failed. Start the login again.'
+const TERMINAL_ACK_TIMEOUT_MS = 5_000
 
 function escapeHtml(value: string): string {
   return value
@@ -72,6 +73,7 @@ function jsonForScript(value: unknown): string {
 function statePayload(state: ViewState): string {
   return jsonForScript({
     status: state.status,
+    ...statusCopy(state),
     detail: state.detail,
     source: state.source ?? null,
     authFile: state.authFile,
@@ -174,6 +176,8 @@ button:focus-visible{outline:2px solid var(--accent-strong); outline-offset:2px}
 .ghost:hover{color:var(--ink); border-color:var(--muted)}
 .actions{display:flex; gap:10px; align-items:center}
 .actions .primary{flex:1}
+.open-feedback{margin:10px 0 0;color:var(--danger);font-size:12.5px}
+.open-feedback.ok{color:var(--muted)}
 .status{
   display:flex; gap:11px; align-items:flex-start; margin:20px 0 0; padding:14px 16px;
   border-radius:var(--radius-sm); background:var(--canvas); border:1px solid var(--line);
@@ -200,7 +204,7 @@ footer code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
     <span class="badge">Grok 订阅登录</span>
   </div>
   <div class="card">
-    <h1>${escapeHtml(copy.title)}</h1>
+    <h1 id="page-title">${escapeHtml(copy.title)}</h1>
     <p class="sub">使用 SuperGrok / X Premium 订阅登录 xAI，无需 API Key。</p>
     <ol>
       <li>在浏览器中打开授权页面<span>如果浏览器没有自动打开，点下面的按钮。</span></li>
@@ -217,6 +221,7 @@ footer code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
     <div class="actions">
       <button class="primary" id="open" type="button">${done ? '已授权，重新打开授权页面' : '打开授权页面'}</button>
     </div>
+    <p class="open-feedback" id="open-feedback" role="status" aria-live="polite" hidden></p>
     <div class="status${done ? ' ok' : state.status === 'waiting' ? '' : ' bad'}" id="status" role="status" aria-live="polite">
       <span class="dot" aria-hidden="true"></span>
       <div>
@@ -234,13 +239,25 @@ footer code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   function paint(s){
     var box=document.getElementById('status');
     box.className='status'+(s.status==='authorized'?' ok':s.status==='waiting'?'':' bad');
+    document.getElementById('page-title').textContent=s.title;
     document.getElementById('status-title').textContent=s.title;
     document.getElementById('status-body').textContent=s.body;
   }
   function poll(){
-    fetch(base+'/api/state',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){
+    fetch(base+'/api/state',{cache:'no-store'}).then(function(r){
+      if(!r.ok)throw new Error('status-unavailable');
+      return r.json();
+    }).then(function(s){
       if(s.status!==last){last=s.status; paint(s)}
-      if(s.status==='waiting'){setTimeout(poll,2000)}
+      if(s.status==='waiting'){
+        setTimeout(poll,2000);
+        return;
+      }
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          fetch(base+'/api/terminal-ack',{method:'POST'}).catch(function(){});
+        });
+      });
     }).catch(function(){setTimeout(poll,4000)});
   }
   document.getElementById('copy').addEventListener('click',function(){
@@ -254,8 +271,22 @@ footer code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       try{document.execCommand('copy');done()}catch(e){button.textContent='请手动复制'}
     }
   });
-  document.getElementById('open').addEventListener('click',function(){
-    fetch(base+'/api/open',{method:'POST'}).catch(function(){});
+  var openButton=document.getElementById('open');
+  var openFeedback=document.getElementById('open-feedback');
+  openButton.addEventListener('click',function(){
+    if(openButton.disabled)return;
+    openButton.disabled=true;
+    openFeedback.hidden=true;
+    fetch(base+'/api/open',{method:'POST'}).then(function(response){
+      if(!response.ok)throw new Error('browser-open-failed');
+      openFeedback.className='open-feedback ok';
+      openFeedback.textContent='授权页面已在浏览器中打开。';
+      openFeedback.hidden=false;
+    }).catch(function(){
+      openFeedback.className='open-feedback';
+      openFeedback.textContent='无法自动打开授权页面，请手动使用页面下方显示的授权地址。';
+      openFeedback.hidden=false;
+    }).finally(function(){openButton.disabled=false;});
   });
   poll();
 })();
@@ -297,12 +328,43 @@ export async function startOnboarding(
   // The page may be closed before the grant settles; keep the rejection observed.
   tokens.catch(() => {})
 
+  let resolveTerminalDelivery: () => void = () => {}
+  const terminalDelivery = new Promise<void>(resolve => { resolveTerminalDelivery = resolve })
+  let terminalAckTimer: ReturnType<typeof setTimeout> | undefined
+  let serverClosePromise: Promise<void> | undefined
+  let terminalDeliveryFinished = false
+
   const server: Server = createServer((request, response) => {
     handle(request, response).catch(() => {
       response.statusCode = 500
       response.end()
     })
   })
+
+  const closeServer = (): Promise<void> => {
+    if (serverClosePromise !== undefined) return serverClosePromise
+    serverClosePromise = new Promise<void>((resolve) => {
+      server.close(() => resolve())
+      server.closeAllConnections?.()
+    })
+    return serverClosePromise
+  }
+
+  const finishTerminalDelivery = (): void => {
+    if (terminalDeliveryFinished) return
+    terminalDeliveryFinished = true
+    if (terminalAckTimer !== undefined) {
+      clearTimeout(terminalAckTimer)
+      terminalAckTimer = undefined
+    }
+    resolveTerminalDelivery()
+    void closeServer()
+  }
+
+  const scheduleTerminalCleanup = (): void => {
+    if (terminalAckTimer !== undefined) return
+    terminalAckTimer = setTimeout(finishTerminalDelivery, TERMINAL_ACK_TIMEOUT_MS)
+  }
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
@@ -326,9 +388,20 @@ export async function startOnboarding(
       return
     }
     if (route === '/api/open' && request.method === 'POST') {
-      openBrowser(device.verificationUri)
-      response.statusCode = 204
+      const opened = await (options.open ?? openBrowser)(device.verificationUri)
+      if (!opened) options.announce?.(device.verificationUri)
+      response.statusCode = opened ? 204 : 503
       response.end()
+      return
+    }
+    if (route === '/api/terminal-ack' && request.method === 'POST') {
+      if (view.status === 'waiting') {
+        response.statusCode = 409
+        response.end()
+        return
+      }
+      response.statusCode = 204
+      response.end(() => finishTerminalDelivery())
       return
     }
     response.statusCode = 404
@@ -348,27 +421,27 @@ export async function startOnboarding(
   })
 
   const close = async (): Promise<void> => {
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve())
-      server.closeAllConnections?.()
-    })
+    if (view.status !== 'waiting') await terminalDelivery
+    await closeServer()
   }
 
   void pollDeviceAuth(config, device, options.signal).then(
     (stored) => {
       view = { ...view, status: 'authorized', source: stored.source }
+      scheduleTerminalCleanup()
       settleTokens(stored)
     },
     (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
       const expired = /expired/i.test(message)
       view = { ...view, status: expired ? 'expired' : 'error', detail: expired ? '' : message || GRANT_ERROR }
+      scheduleTerminalCleanup()
       failTokens(error)
     },
   )
 
   const opener = options.open ?? openBrowser
-  if (!opener(url)) options.announce?.(url)
+  if (!await opener(url)) options.announce?.(url)
 
   return {
     url,

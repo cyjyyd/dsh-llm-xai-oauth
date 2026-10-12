@@ -12,7 +12,7 @@ export interface LoginSink {
 
 export interface LoginOptions {
   sink?: LoginSink
-  open?: (url: string) => boolean
+  open?: (url: string) => boolean | Promise<boolean>
   signal?: AbortSignal
 }
 
@@ -41,7 +41,7 @@ export async function runDeviceLogin(
   const opener = options.open ?? openBrowser
   const device = await startDeviceAuth(config, options.signal)
   sink.write(formatLoginPrompt(device))
-  if (opener(device.verificationUri)) {
+  if (await opener(device.verificationUri)) {
     sink.write('Opened the login page in your browser.\n')
   }
   const tokens = await pollDeviceAuth(config, device, options.signal)

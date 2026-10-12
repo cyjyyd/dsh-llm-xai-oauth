@@ -142,9 +142,9 @@ test('mergeXaiCatalog prefers the live listing over the static fallback', () => 
 
 test('explicitSearchPaths covers grok-bridge, grok CLI, and common config dirs', () => {
   const paths = explicitSearchPaths('/home/user')
-  assert.equal(paths.some(path => path.endsWith('.grok-bridge/auth.json')), true)
-  assert.equal(paths.some(path => path.endsWith('.grok/auth.json')), true)
-  assert.equal(paths.some(path => path.endsWith('.config/grok/auth.json')), true)
+  assert.equal(paths.some(path => path.endsWith(join('.grok-bridge', 'auth.json'))), true)
+  assert.equal(paths.some(path => path.endsWith(join('.grok', 'auth.json'))), true)
+  assert.equal(paths.some(path => path.endsWith(join('.config', 'grok', 'auth.json'))), true)
 })
 
 test('searchLocalTokens finds a grok-cli shaped file outside the two canonical paths', async () => {
@@ -168,7 +168,7 @@ test('searchLocalTokens finds a grok-cli shaped file outside the two canonical p
     configFile: join(home, '.grok-bridge', 'config.json'),
   }, home)
   assert.equal(found?.accessToken, 'found-token')
-  assert.equal(found?.path.endsWith('.config/grok/auth.json'), true)
+  assert.equal(found?.path.endsWith(join('.config', 'grok', 'auth.json')), true)
 })
 
 test('upsertDefaultModelSection inserts or replaces agent-default-model', () => {
@@ -579,6 +579,7 @@ test('the login guide renders the device code and escapes untrusted fields', asy
   assert.match(html, /ABCD-1234/u)
   assert.match(html, /https:\/\/auth\.x\.ai\/device/u)
   assert.match(html, /Content-Security-Policy/u)
+  assert.match(html, /无法自动打开授权页面/u)
   // The official desktop palette, so the first-run page does not look foreign.
   assert.match(html, /--canvas:#f9fafb/u)
   assert.match(html, /--ink:#353638/u)
@@ -598,28 +599,33 @@ test('the login guide renders the device code and escapes untrusted fields', asy
 })
 
 test('the guide server answers only under its own path token', async () => {
-  const { startOnboarding } = await import('../lib/onboarding.js')
-  const handle = await startOnboarding({
-    authBase: 'https://auth.x.ai',
-    tokenPath: '/token',
-    deviceCodePath: '/device',
-    clientId: 'client',
-    scope: 'scope',
-    authFile: '/tmp/xai-auth.json',
-    grokCliAuthFile: '/tmp/grok-auth.json',
-    configFile: '/tmp/config.json',
-  }, {
-    // An already-expired grant settles the poll loop without any network call.
-    device: {
-      deviceCode: 'device',
-      userCode: 'WXYZ-9876',
-      verificationUri: 'https://auth.x.ai/device',
-      intervalSeconds: 1,
-      expiresInSeconds: 0,
-    },
-    open: () => true,
-  })
+  const { mkdtemp, rm, access } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'xai-expired-guide-'))
+  let handle
   try {
+    const { startOnboarding } = await import('../lib/onboarding.js')
+    handle = await startOnboarding({
+      authBase: 'https://auth.x.ai',
+      tokenPath: '/token',
+      deviceCodePath: '/device',
+      clientId: 'client',
+      scope: 'scope',
+      authFile: join(home, 'auth.json'),
+      grokCliAuthFile: join(home, 'cli-auth.json'),
+      configFile: join(home, 'config.json'),
+    }, {
+      // An already-expired grant settles the poll loop without any network call.
+      device: {
+        deviceCode: 'device',
+        userCode: 'WXYZ-9876',
+        verificationUri: 'https://auth.x.ai/device',
+        intervalSeconds: 1,
+        expiresInSeconds: 0,
+      },
+      open: () => true,
+    })
     const page = await fetch(handle.url)
     assert.equal(page.status, 200)
     assert.match(await page.text(), /WXYZ-9876/u)
@@ -627,12 +633,18 @@ test('the guide server answers only under its own path token', async () => {
     const state = await fetch(new URL('api/state', handle.url))
     assert.equal(state.status, 200)
     assert.equal((await state.json()).status, 'expired')
-
+    await assert.rejects(access(join(home, 'auth.json')), { code: 'ENOENT' })
+    await assert.rejects(access(join(home, 'cli-auth.json')), { code: 'ENOENT' })
     const outside = await fetch(new URL('/', handle.url))
     assert.equal(outside.status, 404)
     assert.match(handle.url, /^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\/$/u)
+
+    const acknowledged = await fetch(new URL('api/terminal-ack', handle.url), { method: 'POST' })
+    assert.equal(acknowledged.status, 204)
+    await assert.rejects(fetch(handle.url), /fetch failed/u)
   } finally {
-    await handle.close()
+    await handle?.close()
+    await rm(home, { recursive: true, force: true })
   }
 })
 

@@ -12,7 +12,7 @@ export function browserAllowed(): boolean {
  * Best-effort open of the device-login page. Disabled with
  * GROK_BRIDGE_NO_BROWSER=1 so SSH / CI / headless hosts print the URL instead.
  */
-export function openBrowser(url: string): boolean {
+export async function openBrowser(url: string): Promise<boolean> {
   if (!browserAllowed()) {
     return false
   }
@@ -23,9 +23,13 @@ export function openBrowser(url: string): boolean {
         ? ['cmd', ['/c', 'start', '', url]] as const
         : ['xdg-open', [url]] as const
     const child = spawn(cmd, args, { stdio: 'ignore', detached: true })
-    child.on('error', () => {})
-    child.unref()
-    return true
+    return await new Promise<boolean>(resolve => {
+      child.once('error', () => resolve(false))
+      child.once('spawn', () => {
+        child.unref()
+        resolve(true)
+      })
+    })
   } catch {
     return false
   }
