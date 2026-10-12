@@ -89,6 +89,8 @@ The Windows desktop build ships no console, so a terminal-only login would print
 - live status that flips to *connected* the moment xAI hands back tokens, with no manual refresh;
 - light and dark themes, matching the DeepSeek Harness desktop client.
 
+The guide stays up until the page has painted the final state and acknowledged it (5 s cap), so a successful authorization is always visible before the port closes. If the browser cannot be launched — a spawn failure or a blocked default browser — the button says so inline and the authorization URL is announced on stderr, instead of reporting a success that never happened.
+
 The page is served from `127.0.0.1` on an ephemeral port under a random 128-bit path, so no other local process can read the pending code. It pulls in no external asset and needs no network beyond the xAI endpoints.
 
 Force it on any platform, or suppress it:

@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-xai-oauth",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Use a SuperGrok / X Premium subscription inside DeepSeek Harness. Device-code OAuth, grok-bridge token reuse, no xAI API key. Works in headless, web, and any TUI.",
   "keywords": [
     "deepseek-harness",
