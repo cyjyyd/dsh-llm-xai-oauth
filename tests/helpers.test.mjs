@@ -471,6 +471,99 @@ test('XaiAdapter throws CONTEXT_WINDOW_EXCEEDED before fetch when the last promp
   assert.match(String(thrown?.message), /499343/)
 })
 
+test('a live xAI stream still yields chunks through the 0.2.1 watchdog', { timeout: 20000 }, async () => {
+  const { createServer } = await import('node:http')
+  const proxyKeys = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']
+  const savedProxy = new Map(proxyKeys.map(key => [key, process.env[key]]))
+  for (const key of proxyKeys) delete process.env[key]
+
+  const server = createServer((request, response) => {
+    assert.equal(request.url, '/v1/chat/completions')
+    assert.equal(request.headers.authorization, 'Bearer token')
+    response.writeHead(200, { 'content-type': 'text/event-stream' })
+    // A comment must keep the watchdog armed rather than end the stream.
+    response.write(': keepalive\n\n')
+    response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'hello' } }] })}\n\n`)
+    response.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`)
+    response.write('data: [DONE]\n\n')
+    response.end()
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address()
+  try {
+    const adapter = new XaiAdapter({
+      options: () => resolveAdapterOptions({
+        baseURL: `http://127.0.0.1:${port}/v1`,
+        streamIdleTimeoutMs: 5000,
+      }),
+      resolveAccessToken: async () => 'token',
+    })
+    const chunks = []
+    for await (const chunk of adapter.stream({
+      provider: 'xai',
+      model: 'grok-4.7',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })) chunks.push(chunk)
+    assert.equal(chunks.some(chunk => chunk.type === 'text-delta' && chunk.text === 'hello'), true)
+    assert.equal(chunks.at(-1)?.type, 'finish')
+    assert.equal(chunks.at(-1)?.reason.kind, 'stop')
+  } finally {
+    server.closeAllConnections?.()
+    await new Promise(resolve => server.close(resolve))
+    for (const [key, value] of savedProxy) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
+test('an idle xAI stream surfaces the idle watchdog as TIMEOUT', { timeout: 20000 }, async () => {
+  // dsh 0.2.1 changed idleWatchdog so only its own deadline settles an
+  // outstanding demand. This drives the real adapter against a server that
+  // sends SSE headers and then never a byte, which is exactly that path.
+  const { createServer } = await import('node:http')
+  const proxyKeys = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']
+  const savedProxy = new Map(proxyKeys.map(key => [key, process.env[key]]))
+  for (const key of proxyKeys) delete process.env[key]
+
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' })
+    // Never write an event and never end: the adapter must time out on its own.
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address()
+  try {
+    const adapter = new XaiAdapter({
+      options: () => resolveAdapterOptions({
+        baseURL: `http://127.0.0.1:${port}/v1`,
+        streamIdleTimeoutMs: 250,
+      }),
+      resolveAccessToken: async () => 'token',
+    })
+    let thrown
+    try {
+      for await (const _chunk of adapter.stream({
+        provider: 'xai',
+        model: 'grok-4.7',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      })) {
+        // A stalled stream must not produce chunks.
+      }
+    } catch (error) {
+      thrown = error
+    }
+    assert.equal(thrown?.code, 'TIMEOUT')
+    assert.match(String(thrown?.message), /idle timeout after 250ms/u)
+  } finally {
+    server.closeAllConnections?.()
+    await new Promise(resolve => server.close(resolve))
+    for (const [key, value] of savedProxy) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
 test('XaiAdapter declares no provider image pricing', () => {
   const adapter = new XaiAdapter({
     options: () => resolveAdapterOptions({}),
@@ -666,7 +759,13 @@ test('manifest declares dshReleases for every verified dsh line', async () => {
   assert.equal(releases['0.1.7-rc.2'], 'compatible')
   assert.equal(releases['0.2.0-rc.1'], 'compatible')
   assert.equal(releases['0.2.0-rc.2'], 'compatible')
+  assert.equal(releases['0.2.1-rc.2'], 'compatible')
   assert.equal(manifest.engines?.node, '>=22.19')
+  // dsh 0.2.1 lets `engines.dsh` decide alone and ignore peers when present.
+  // This package keeps the peer path so one declaration still covers every
+  // host back to 0.1.5; adding engines.dsh would silently exempt 0.2.1+ from
+  // the peers those older releases still check.
+  assert.equal(manifest.engines?.dsh, undefined)
   // dsh 0.1.7 checks these peers with `semver.satisfies` and
   // `includePrerelease: true`, so one `>=0.1.5-rc.1 <0.1.8` comparator would
   // already admit every release in between. The manifest instead keeps one
@@ -681,8 +780,12 @@ test('manifest declares dshReleases for every verified dsh line', async () => {
   assert.equal(inRange('0.1.7-rc.2'), true)
   assert.equal(inRange('0.2.0-rc.1'), true)
   assert.equal(inRange('0.2.0-rc.2'), true)
-  // The 0.2.0 line is admitted so the stable desktop build resolves too.
+  assert.equal(inRange('0.2.1-rc.2'), true)
+  // Each rc line is admitted whole, so the stable release of that line and any
+  // later rc on it resolve without another manifest change.
   assert.equal(inRange('0.2.0'), true)
+  assert.equal(inRange('0.2.1'), true)
+  assert.equal(inRange('0.2.1-rc.3'), true)
   assert.equal(inRange('0.1.5'), true)
   assert.equal(inRange('0.1.7'), true)
   assert.equal(inRange('0.1.2-rc.1'), false)
@@ -694,18 +797,50 @@ test('manifest declares dshReleases for every verified dsh line', async () => {
   assert.equal(inRange('0.1.7-alpha.2'), false)
   assert.equal(inRange('0.2.0-alpha.1'), false)
   assert.equal(inRange('0.2.1-alpha.1'), false)
-  assert.equal(inRange('0.2.1'), false)
+  assert.equal(inRange('0.2.1-alpha.5'), false)
+  assert.equal(inRange('0.2.1-rc.1'), false)
+  assert.equal(inRange('0.2.2-alpha.1'), false)
   assert.equal(inRange('0.3.0-rc.1'), false)
   assert.equal(
-    semver.maxSatisfying(['0.1.5-rc.3', '0.2.0-rc.2'], range, { includePrerelease: true }),
-    '0.2.0-rc.2',
+    semver.maxSatisfying(['0.1.5-rc.3', '0.2.0-rc.2', '0.2.1-rc.2'], range, { includePrerelease: true }),
+    '0.2.1-rc.2',
   )
-  // Every dsh peer shares that range, so the same declaration satisfies the
-  // install-time check on all three verified hosts.
+  // Every dsh peer shares that range, so one declaration satisfies the
+  // install-time check on every verified host.
   for (const [name, peerRange] of Object.entries(manifest.peerDependencies ?? {})) {
     if (name === '@deepseek-ai/cordis') continue
     assert.match(name, /^@deepseek-ai\/dsh-/u)
     assert.equal(peerRange, range, `${name} must accept both verified hosts`)
+  }
+})
+
+test('the real dsh compatibility gate admits this manifest', async (t) => {
+  // dsh 0.2.1 reworked the gate: engines.dsh now decides alone and peers are
+  // ignored when it is present, and the diagnostic reports `requirements`
+  // instead of `peers`. Check the manifest against the shipped implementation
+  // rather than a re-implementation of the range.
+  let gate
+  try {
+    ;({ evaluatePluginCompatibility: gate } = await import('@deepseek-ai/dsh-app-boot'))
+  } catch {
+    t.skip('dsh-app-boot is not installed in this tree')
+    return
+  }
+  if (typeof gate !== 'function') {
+    t.skip('this dsh-app-boot does not export the compatibility gate')
+    return
+  }
+  const { readFile } = await import('node:fs/promises')
+  const { dirname, join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+  const evaluatePluginCompatibility = gate
+  for (const version of ['0.1.5-rc.1', '0.1.5-rc.3', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.2']) {
+    assert.equal(evaluatePluginCompatibility(manifest, {}, version), undefined, `dsh ${version} must be admitted`)
+  }
+  for (const version of ['0.1.2-rc.1', '0.1.6-alpha.1', '0.2.1-alpha.5', '0.2.1-rc.1', '0.3.0-rc.1']) {
+    assert.notEqual(evaluatePluginCompatibility(manifest, {}, version), undefined, `dsh ${version} must be rejected`)
   }
 })
 

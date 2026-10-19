@@ -42,8 +42,8 @@ Swap `headless` for `web` or `tui`. **Updates must use `@latest`.** A bare
 ## Setup in five minutes
 
 You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`).
-Verified on `0.1.5-rc.1` through `0.1.5-rc.3`, on `0.1.7-rc.1` and `0.1.7-rc.2`, and on `0.2.0-rc.1` and `0.2.0-rc.2` — the line the
-Windows and macOS desktop builds ship. `0.1.2` and the `0.1.6` alphas are not supported.
+Verified on `0.1.5-rc.1` through `0.1.5-rc.3`, on `0.1.7-rc.1` and `0.1.7-rc.2`, on `0.2.0-rc.1` and `0.2.0-rc.2`, and on `0.2.1-rc.2`
+— the line the Windows and macOS desktop builds ship. `0.1.2`, the `0.1.6` alphas and the `0.2.x` alphas are not supported.
 
 ### 1. Add the plugin to a profile
 
