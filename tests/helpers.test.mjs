@@ -760,6 +760,7 @@ test('manifest declares dshReleases for every verified dsh line', async () => {
   assert.equal(releases['0.2.0-rc.1'], 'compatible')
   assert.equal(releases['0.2.0-rc.2'], 'compatible')
   assert.equal(releases['0.2.1-rc.2'], 'compatible')
+  assert.equal(releases['0.2.1-rc.5'], 'compatible')
   assert.equal(manifest.engines?.node, '>=22.19')
   // dsh 0.2.1 lets `engines.dsh` decide alone and ignore peers when present.
   // This package keeps the peer path so one declaration still covers every
@@ -781,6 +782,11 @@ test('manifest declares dshReleases for every verified dsh line', async () => {
   assert.equal(inRange('0.2.0-rc.1'), true)
   assert.equal(inRange('0.2.0-rc.2'), true)
   assert.equal(inRange('0.2.1-rc.2'), true)
+  // Audited 0.2.1-rc.3 through rc.5: their plugin-facing packages are
+  // file-identical to rc.2, so the 0.2.1 tuple covers the whole rc line.
+  assert.equal(inRange('0.2.1-rc.3'), true)
+  assert.equal(inRange('0.2.1-rc.4'), true)
+  assert.equal(inRange('0.2.1-rc.5'), true)
   // Each rc line is admitted whole, so the stable release of that line and any
   // later rc on it resolve without another manifest change.
   assert.equal(inRange('0.2.0'), true)
@@ -836,7 +842,7 @@ test('the real dsh compatibility gate admits this manifest', async (t) => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..')
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   const evaluatePluginCompatibility = gate
-  for (const version of ['0.1.5-rc.1', '0.1.5-rc.3', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.2']) {
+  for (const version of ['0.1.5-rc.1', '0.1.5-rc.3', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.2', '0.2.1-rc.5']) {
     assert.equal(evaluatePluginCompatibility(manifest, {}, version), undefined, `dsh ${version} must be admitted`)
   }
   for (const version of ['0.1.2-rc.1', '0.1.6-alpha.1', '0.2.1-alpha.5', '0.2.1-rc.1', '0.3.0-rc.1']) {

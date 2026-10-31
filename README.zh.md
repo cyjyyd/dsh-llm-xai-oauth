@@ -37,7 +37,7 @@ profile 换成 `web` 或 `tui` 即可。**更新必须带 `@latest`。** 写成�
 
 ## 5 分钟配好
 
-下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.5-rc.1` 至 `0.1.5-rc.3`、`0.1.7-rc.1`/`0.1.7-rc.2`、`0.2.0-rc.1`/`0.2.0-rc.2`、`0.2.1-rc.2`（桌面端安装包所在的版本线）），Node.js ≥ 22.19。`0.1.2`、`0.1.6` alpha 与 `0.2.x` alpha 不支持。
+下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.5-rc.1` 至 `0.1.5-rc.3`、`0.1.7-rc.1`/`0.1.7-rc.2`、`0.2.0-rc.1`/`0.2.0-rc.2`、`0.2.1-rc.2` 至 `0.2.1-rc.5`（桌面端安装包所在的版本线）），Node.js ≥ 22.19。`0.1.2`、`0.1.6` alpha 与 `0.2.x` alpha 不支持。审计过程见 [`docs/compatibility-audit-0.2.1-rc.5.md`](docs/compatibility-audit-0.2.1-rc.5.md)。
 
 ### 1. 把插件装进 profile
 

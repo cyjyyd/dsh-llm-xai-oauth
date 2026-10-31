@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-xai-oauth",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Use a SuperGrok / X Premium subscription inside DeepSeek Harness. Device-code OAuth, grok-bridge token reuse, no xAI API key. Works in headless, web, and any TUI.",
   "keywords": [
     "deepseek-harness",
@@ -61,7 +61,8 @@
         "0.1.7-rc.2": "compatible",
         "0.2.0-rc.1": "compatible",
         "0.2.0-rc.2": "compatible",
-        "0.2.1-rc.2": "compatible"
+        "0.2.1-rc.2": "compatible",
+        "0.2.1-rc.5": "compatible"
       },
       "profiles": [
         "tui",
@@ -104,12 +105,12 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.5",
     "@deepseek-ai/dsh-invariants": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-launch-environment": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-settings": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-timeout": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-launch-environment": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-settings": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-timeout": "0.2.1-rc.5",
     "@types/node": "^24.0.0",
     "semver": "^7.8.5",
     "typescript": "^5.9.0"
