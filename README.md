@@ -42,9 +42,10 @@ Swap `headless` for `web` or `tui`. **Updates must use `@latest`.** A bare
 ## Setup in five minutes
 
 You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`).
-Verified on `0.1.5-rc.1` through `0.1.5-rc.3`, on `0.1.7-rc.1` and `0.1.7-rc.2`, on `0.2.0-rc.1` and `0.2.0-rc.2`, and on `0.2.1-rc.2`
-through `0.2.1-rc.5` — the line the Windows and macOS desktop builds ship. `0.1.2`, the `0.1.6` alphas and the `0.2.x` alphas are not
-supported. See the [compatibility audit](https://github.com/cyjyyd/dsh-llm-xai-oauth/blob/main/docs/compatibility-audit-0.2.1-rc.5.md) for the evidence behind that list.
+Supported on `0.2.1-rc.2` through `0.2.1-rc.5`, and on `0.2.2-rc.1` and newer releases of that line — the line the Windows and macOS
+desktop builds ship. dsh `0.2.0` and every `0.1.x` release have been dropped: their settings API and message shapes are gone upstream.
+Prereleases of a supported line that were never verified are rejected. See the
+[compatibility audit](https://github.com/cyjyyd/dsh-llm-xai-oauth/blob/main/docs/compatibility-audit-0.2.2-rc.1.md) for the evidence.
 
 ### 1. Add the plugin to a profile
 
@@ -175,7 +176,7 @@ Or pass `--provider` / `--model`, or use `/model` in the TUI. At startup the plu
 
 `max` in a DeepSeek-style picker maps to `xhigh`.
 
-Optional plugin settings are `baseURL`, `reasoningEffort`, `models`, and the retry / idle timeout. On `0.1.5` they live under `llm-xai-oauth:` in `$DSH_HOME/settings.yaml`. On `0.1.7` they live in the profile patch and `0.1.7` imports that file once, on its first start. Either way a change reaches the next request without a restart.
+Optional plugin settings are `baseURL`, `reasoningEffort`, `models`, and the retry / idle timeout. They live in the profile patch, the same place every other dsh `0.2.x` setting lives, and a change reaches the next request without a restart because the fields are volatile.
 
 Long SuperGrok chats can fill the 500K window and then 400 with a generic `INVALID_REQUEST` because `max_tokens` no longer fits. From 0.1.3 the adapter projects the next prompt from the last usage sample and, when remaining context cannot hold the requested completion, throws `CONTEXT_WINDOW_EXCEEDED` so harness overflow compaction can retry. Compaction / title calls still go through, with `max_tokens` clamped to the remainder.
 

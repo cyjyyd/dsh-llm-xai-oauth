@@ -3,8 +3,8 @@
  * OAuth tokens. On start the plugin searches the machine for a reusable
  * grok-bridge / Grok CLI token, falls back to the xAI device-code login on a
  * TTY, then writes `agent-default-model` so `/model` and new agents land on
- * Grok. Connection facts resolve per request from the optional
- * `llm-xai-oauth` settings section; the access token is refreshed from
+ * Grok. Connection facts resolve per request from this plugin's volatile
+ * Config in the profile patch; the access token is refreshed from
  * ~/.grok-bridge/auth.json just before each call.
  *
  * @module dsh-llm-xai-oauth
@@ -14,7 +14,7 @@ import { isVolatile } from '@deepseek-ai/cosmokit'
 import z from '@deepseek-ai/schemastery'
 import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
-import { deepEqualJson, installSettingsSection } from './dsh-compat.js'
+import { deepEqualJson } from './dsh-compat.js'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   DEFAULT_CONTEXT_WINDOW,
@@ -71,7 +71,6 @@ export { applyDshDefaultModel, defaultModelSelection } from './dsh-defaults.js'
 export const name = 'llm-xai-oauth'
 export const inject = ['llm']
 
-const NS = 'llm-xai-oauth'
 const PROVIDER = 'xai'
 
 const DEFAULT_MODELS: XaiCatalogModel[] = [
@@ -244,7 +243,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return undefined
   })
 
-  let current: () => Config = () => plainConfig(config)
+  const current: () => Config = () => plainConfig(config)
   let lastRaw: Config | undefined
   let lastGood: XaiConnectionOptions | undefined
   const options = (): XaiConnectionOptions => {
@@ -335,6 +334,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       .filter((model): model is XaiCatalogModel => model !== undefined)
     if (listed.length === 0) return
     liveCatalog = mergeXaiCatalog(connection.models, listed)
+    // 0.2.2 declared this event so consumers reload `listModels()`; older hosts
+    // do not declare it, and an unknown event is a no-op there.
+    ;(ctx as { emit: (event: string, provider: string) => void }).emit('llm/models-updated', PROVIDER)
   }
   let registeredPolicy = options().retryPolicy
   const ensureRegistrationFacts = (): void => {
@@ -344,19 +346,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     registeredPolicy = policy
   }
 
-  // 0.1.5: the settings section is the live source, and a committed change
-  // re-registers the route when the retry policy moved. 0.1.7 has no section;
-  // the same re-registration listens for the loader's volatile update.
-  installSettingsSection(ctx, NS, Config, plainConfig(config), {
-    setSource: (source) => {
-      current = () => plainConfig(source() as Config)
-    },
-    onChange: ensureRegistrationFacts,
-  })
-  // Declared by the 0.1.7 loader only; 0.1.5 never emits it, and the listener
-  // is harmlessly dormant there. The event name is absent from that host's
-  // cordis augmentation, so the call is widened rather than asserted.
-  ;(ctx as { on: (event: string, listener: () => void) => void }).on('loader/volatile-update', ensureRegistrationFacts)
+  // Every supported host reads Config directly, so a committed settings change
+  // reaches `current` through the volatile fields. The loader announces those
+  // writes, and a moved retry policy re-registers the route.
+  // Declared by the loader plugin, whose augmentation is not part of this
+  // package's compile graph, so the event name is widened rather than asserted.
+  ;(ctx as { on: (event: string, listener: () => void) => void })
+    .on('loader/volatile-update', () => ensureRegistrationFacts())
 
   // 0.1.7 builds a settings page per plugin unless the plugin opts out. This
   // one has no custom page, and the call is a no-op where `configure` is absent.

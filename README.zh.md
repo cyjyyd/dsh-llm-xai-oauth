@@ -37,7 +37,7 @@ profile 换成 `web` 或 `tui` 即可。**更新必须带 `@latest`。** 写成�
 
 ## 5 分钟配好
 
-下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，已验证 `0.1.5-rc.1` 至 `0.1.5-rc.3`、`0.1.7-rc.1`/`0.1.7-rc.2`、`0.2.0-rc.1`/`0.2.0-rc.2`、`0.2.1-rc.2` 至 `0.2.1-rc.5`（桌面端安装包所在的版本线）），Node.js ≥ 22.19。`0.1.2`、`0.1.6` alpha 与 `0.2.x` alpha 不支持。审计过程见[兼容性审计记录](https://github.com/cyjyyd/dsh-llm-xai-oauth/blob/main/docs/compatibility-audit-0.2.1-rc.5.md)。
+下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，支持 `0.2.1-rc.2` 至 `0.2.1-rc.5`，以及 `0.2.2-rc.1` 及该线更新版本；桌面端安装包就在这条版本线上），Node.js ≥ 22.19。dsh `0.2.0` 与所有 `0.1.x` 已不再支持——它们的设置接口与消息结构在上游已移除。未经验证的预发布版会被拒绝。审计过程见[兼容性审计记录](https://github.com/cyjyyd/dsh-llm-xai-oauth/blob/main/docs/compatibility-audit-0.2.2-rc.1.md)。
 
 ### 1. 把插件装进 profile
 
@@ -170,7 +170,7 @@ agent-default-model:
 
 DeepSeek 风格选择器里的 `max` 会映射成 `xhigh`。
 
-可选配置是 `baseURL`、`reasoningEffort`、`models` 和重试 / 空闲超时。`0.1.5` 写在 `$DSH_HOME/settings.yaml` 的 `llm-xai-oauth:` 下；`0.1.7` 写在 profile patch 里，并且首次启动时会把那份旧文件导入一次。两种主机都是改完不用重启，下一次请求再生效。
+可选配置是 `baseURL`、`reasoningEffort`、`models` 和重试 / 空闲超时。它们写在 profile patch 里，和 dsh `0.2.x` 的其它设置同一处；字段是 volatile 的，改完不用重启，下一次请求再生效。
 
 超长 SuperGrok 会话会把 500K 窗口填满，下一轮 `max_tokens` 装不下时代理常回笼统的 HTTP 400 `INVALID_REQUEST`。从 0.1.3 起，适配器用上一轮用量推算下一次 prompt；剩余上下文装不下请求的补全时，会抛 `CONTEXT_WINDOW_EXCEEDED`，让 harness 走溢出压缩再试。压缩 / 标题请求仍会发出，并把 `max_tokens` 钳到剩余窗口。
 

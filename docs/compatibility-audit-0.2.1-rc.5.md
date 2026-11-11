@@ -1,5 +1,7 @@
 # Compatibility audit — dsh 0.2.1-rc.5
 
+> Superseded by [`compatibility-audit-0.2.2-rc.1.md`](compatibility-audit-0.2.2-rc.1.md): 0.3.0 drops support below dsh `0.2.1-rc`, so the older version list below is historical.
+
 Target: `@deepseek-ai/dsh@0.2.1-rc.5` (npm `latest` at the time of audit).
 Base: `0.2.1-rc.2`, the release this plugin last verified (`dsh-llm-xai-oauth@0.1.9`).
 Plugin version under audit: `0.2.0`.

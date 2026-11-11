@@ -741,7 +741,7 @@ test('the guide server answers only under its own path token', async () => {
   }
 })
 
-test('manifest declares dshReleases for every verified dsh line', async () => {
+test('manifest supports only the 0.2.1 rc line and newer', async () => {
   const { readFile } = await import('node:fs/promises')
   const { dirname, join } = await import('node:path')
   const { fileURLToPath } = await import('node:url')
@@ -751,73 +751,58 @@ test('manifest declares dshReleases for every verified dsh line', async () => {
   const releases = manifest.dsh?.compatibility?.dshReleases
   const range = manifest.dsh?.compatibility?.dsh
   assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
-  assert.equal(releases['0.1.2-rc.1'], undefined)
-  assert.equal(releases['0.1.5-rc.1'], 'compatible')
-  assert.equal(releases['0.1.5-rc.2'], 'compatible')
-  assert.equal(releases['0.1.5-rc.3'], 'compatible')
-  assert.equal(releases['0.1.7-rc.1'], 'compatible')
-  assert.equal(releases['0.1.7-rc.2'], 'compatible')
-  assert.equal(releases['0.2.0-rc.1'], 'compatible')
-  assert.equal(releases['0.2.0-rc.2'], 'compatible')
-  assert.equal(releases['0.2.1-rc.2'], 'compatible')
-  assert.equal(releases['0.2.1-rc.5'], 'compatible')
   assert.equal(manifest.engines?.node, '>=22.19')
-  // dsh 0.2.1 lets `engines.dsh` decide alone and ignore peers when present.
-  // This package keeps the peer path so one declaration still covers every
-  // host back to 0.1.5; adding engines.dsh would silently exempt 0.2.1+ from
-  // the peers those older releases still check.
+
+  // Only verified releases are named, and everything below 0.2.1-rc is gone.
+  assert.deepEqual(Object.keys(releases).sort(), ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'])
+  for (const dropped of [
+    '0.1.2-rc.1', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
+    '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2',
+  ]) {
+    assert.equal(releases[dropped], undefined, `${dropped} must not be declared`)
+    assert.equal(semver.satisfies(dropped, range, { includePrerelease: true }), false, `${dropped} must be out of range`)
+  }
+
+  // dsh 0.2.1+ lets `engines.dsh` decide alone and ignore peers when present.
+  // Keeping the peer path means one declaration covers every supported host.
   assert.equal(manifest.engines?.dsh, undefined)
-  // dsh 0.1.7 checks these peers with `semver.satisfies` and
-  // `includePrerelease: true`, so one `>=0.1.5-rc.1 <0.1.8` comparator would
-  // already admit every release in between. The manifest instead keeps one
-  // comparator per verified release tuple: node-semver only admits a
-  // prerelease when a comparator carries its exact [major, minor, patch], so
-  // this also rejects the 0.1.6 and 0.1.7 alphas that were never verified.
+
   const inRange = version => semver.satisfies(version, range, { includePrerelease: true })
-  assert.equal(inRange('0.1.5-rc.1'), true)
-  assert.equal(inRange('0.1.5-rc.2'), true)
-  assert.equal(inRange('0.1.5-rc.3'), true)
-  assert.equal(inRange('0.1.7-rc.1'), true)
-  assert.equal(inRange('0.1.7-rc.2'), true)
-  assert.equal(inRange('0.2.0-rc.1'), true)
-  assert.equal(inRange('0.2.0-rc.2'), true)
+  // Supported: the whole 0.2.1 rc line, its stable release, and 0.2.2-rc.1+.
   assert.equal(inRange('0.2.1-rc.2'), true)
-  // Audited 0.2.1-rc.3 through rc.5: their plugin-facing packages are
-  // file-identical to rc.2, so the 0.2.1 tuple covers the whole rc line.
   assert.equal(inRange('0.2.1-rc.3'), true)
   assert.equal(inRange('0.2.1-rc.4'), true)
   assert.equal(inRange('0.2.1-rc.5'), true)
-  // Each rc line is admitted whole, so the stable release of that line and any
-  // later rc on it resolve without another manifest change.
-  assert.equal(inRange('0.2.0'), true)
   assert.equal(inRange('0.2.1'), true)
-  assert.equal(inRange('0.2.1-rc.3'), true)
-  assert.equal(inRange('0.1.5'), true)
-  assert.equal(inRange('0.1.7'), true)
-  assert.equal(inRange('0.1.2-rc.1'), false)
-  assert.equal(inRange('0.1.5-alpha.1'), false)
-  assert.equal(inRange('0.1.5-alpha.2'), false)
-  assert.equal(inRange('0.1.6-alpha.1'), false)
-  assert.equal(inRange('0.1.6'), false)
-  assert.equal(inRange('0.1.7-alpha.1'), false)
-  assert.equal(inRange('0.1.7-alpha.2'), false)
-  assert.equal(inRange('0.2.0-alpha.1'), false)
-  assert.equal(inRange('0.2.1-alpha.1'), false)
-  assert.equal(inRange('0.2.1-alpha.5'), false)
+  assert.equal(inRange('0.2.2-rc.1'), true)
+  assert.equal(inRange('0.2.2-rc.2'), true)
+  assert.equal(inRange('0.2.2'), true)
+  // Rejected: anything below the supported rc line, plus unverified prereleases.
   assert.equal(inRange('0.2.1-rc.1'), false)
-  assert.equal(inRange('0.2.2-alpha.1'), false)
+  assert.equal(inRange('0.2.1-alpha.5'), false)
+  assert.equal(inRange('0.2.2-alpha.3'), false)
+  assert.equal(inRange('0.2.3-rc.1'), false)
   assert.equal(inRange('0.3.0-rc.1'), false)
   assert.equal(
-    semver.maxSatisfying(['0.1.5-rc.3', '0.2.0-rc.2', '0.2.1-rc.2'], range, { includePrerelease: true }),
-    '0.2.1-rc.2',
+    semver.maxSatisfying(['0.2.0-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'], range, { includePrerelease: true }),
+    '0.2.2-rc.1',
   )
-  // Every dsh peer shares that range, so one declaration satisfies the
-  // install-time check on every verified host.
-  for (const [name, peerRange] of Object.entries(manifest.peerDependencies ?? {})) {
-    if (name === '@deepseek-ai/cordis') continue
-    assert.match(name, /^@deepseek-ai\/dsh-/u)
-    assert.equal(peerRange, range, `${name} must accept both verified hosts`)
+
+  // Every remaining dsh peer shares that range, and dsh-invariants is gone:
+  // its last release peers on cordis 4.0.4, which cannot coexist with the
+  // cordis 4.1 that 0.2.2-rc.1 requires.
+  const dshPeers = Object.keys(manifest.peerDependencies ?? {}).filter(name => name.startsWith('@deepseek-ai/dsh-'))
+  assert.deepEqual(dshPeers.sort(), [
+    '@deepseek-ai/dsh-attachment',
+    '@deepseek-ai/dsh-launch-environment',
+    '@deepseek-ai/dsh-llm',
+    '@deepseek-ai/dsh-settings',
+    '@deepseek-ai/dsh-timeout',
+  ])
+  for (const name of dshPeers) {
+    assert.equal(manifest.peerDependencies[name], range, `${name} must accept every supported host`)
   }
+  assert.equal(manifest.devDependencies['@deepseek-ai/dsh-invariants'], undefined)
 })
 
 test('the real dsh compatibility gate admits this manifest', async (t) => {
@@ -842,10 +827,10 @@ test('the real dsh compatibility gate admits this manifest', async (t) => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..')
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   const evaluatePluginCompatibility = gate
-  for (const version of ['0.1.5-rc.1', '0.1.5-rc.3', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.2', '0.2.1-rc.5']) {
+  for (const version of ['0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.1-rc.5', '0.2.2-rc.1']) {
     assert.equal(evaluatePluginCompatibility(manifest, {}, version), undefined, `dsh ${version} must be admitted`)
   }
-  for (const version of ['0.1.2-rc.1', '0.1.6-alpha.1', '0.2.1-alpha.5', '0.2.1-rc.1', '0.3.0-rc.1']) {
+  for (const version of ['0.1.5-rc.3', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-alpha.5', '0.3.0-rc.1']) {
     assert.notEqual(evaluatePluginCompatibility(manifest, {}, version), undefined, `dsh ${version} must be rejected`)
   }
 })
