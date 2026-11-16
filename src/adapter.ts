@@ -211,7 +211,21 @@ function requestId(headers: Headers): ReturnType<typeof ProviderRequestId> | und
   return value === null || value.length === 0 ? undefined : ProviderRequestId(value)
 }
 
-export function httpErrorCode(status: number, error?: WireError['error']): string {
+/**
+ * Failure codes this route can raise. Every member is built into dsh-llm, but
+ * the narrower `BuiltinLlmFailureCode` export only exists from 0.2.2 on, so the
+ * union is declared here to keep the source compiling on 0.2.1 hosts too.
+ */
+type XaiFailureCode =
+  | 'AUTH'
+  | 'QUOTA'
+  | 'RATE_LIMIT'
+  | 'CONTEXT_WINDOW_EXCEEDED'
+  | 'INVALID_REQUEST'
+  | 'SERVER'
+  | `HTTP_${number}`
+
+export function httpErrorCode(status: number, error?: WireError['error']): XaiFailureCode {
   if (status === 401 || status === 403) return 'AUTH'
   const detail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
   if (isQuotaExceededError(detail)) return QUOTA_EXCEEDED_CODE

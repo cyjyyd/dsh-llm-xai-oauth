@@ -42,8 +42,8 @@ Swap `headless` for `web` or `tui`. **Updates must use `@latest`.** A bare
 ## Setup in five minutes
 
 You need Node.js ≥ 22.19 and a DeepSeek Harness CLI (`npm i -g @deepseek-ai/dsh`).
-Supported on `0.2.1-rc.2` through `0.2.1-rc.5`, and on `0.2.2-rc.1` and newer releases of that line — the line the Windows and macOS
-desktop builds ship. dsh `0.2.0` and every `0.1.x` release have been dropped: their settings API and message shapes are gone upstream.
+Supported on `0.2.1-rc.2` through `0.2.1-rc.5`, and on `0.2.2-rc.1` and `0.2.2-rc.3` and newer releases of that line — the line the
+Windows and macOS desktop builds ship. dsh `0.2.0` and every `0.1.x` release have been dropped: their settings API and message shapes are gone upstream.
 Prereleases of a supported line that were never verified are rejected. See the
 [compatibility audit](https://github.com/cyjyyd/dsh-llm-xai-oauth/blob/main/docs/compatibility-audit-0.2.2-rc.1.md) for the evidence.
 

@@ -754,7 +754,7 @@ test('manifest supports only the 0.2.1 rc line and newer', async () => {
   assert.equal(manifest.engines?.node, '>=22.19')
 
   // Only verified releases are named, and everything below 0.2.1-rc is gone.
-  assert.deepEqual(Object.keys(releases).sort(), ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'])
+  assert.deepEqual(Object.keys(releases).sort(), ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.1', '0.2.2-rc.3'])
   for (const dropped of [
     '0.1.2-rc.1', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
     '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2',
@@ -776,6 +776,7 @@ test('manifest supports only the 0.2.1 rc line and newer', async () => {
   assert.equal(inRange('0.2.1'), true)
   assert.equal(inRange('0.2.2-rc.1'), true)
   assert.equal(inRange('0.2.2-rc.2'), true)
+  assert.equal(inRange('0.2.2-rc.3'), true)
   assert.equal(inRange('0.2.2'), true)
   // Rejected: anything below the supported rc line, plus unverified prereleases.
   assert.equal(inRange('0.2.1-rc.1'), false)
@@ -784,8 +785,8 @@ test('manifest supports only the 0.2.1 rc line and newer', async () => {
   assert.equal(inRange('0.2.3-rc.1'), false)
   assert.equal(inRange('0.3.0-rc.1'), false)
   assert.equal(
-    semver.maxSatisfying(['0.2.0-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'], range, { includePrerelease: true }),
-    '0.2.2-rc.1',
+    semver.maxSatisfying(['0.2.0-rc.2', '0.2.1-rc.5', '0.2.2-rc.3'], range, { includePrerelease: true }),
+    '0.2.2-rc.3',
   )
 
   // Every remaining dsh peer shares that range, and dsh-invariants is gone:
@@ -827,7 +828,7 @@ test('the real dsh compatibility gate admits this manifest', async (t) => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..')
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   const evaluatePluginCompatibility = gate
-  for (const version of ['0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.1-rc.5', '0.2.2-rc.1']) {
+  for (const version of ['0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.1-rc.5', '0.2.2-rc.1', '0.2.2-rc.3']) {
     assert.equal(evaluatePluginCompatibility(manifest, {}, version), undefined, `dsh ${version} must be admitted`)
   }
   for (const version of ['0.1.5-rc.3', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-alpha.5', '0.3.0-rc.1']) {

@@ -93,6 +93,29 @@ and `4.1.0`; the devDependency is `^4.1.0`.
 The skipped case is the real-gate test, which skips with a printed reason on
 trees that do not contain `dsh-app-boot`.
 
+
+## Follow-up: `0.2.2-rc.3`
+
+`0.2.2-rc.2` and `0.2.2-rc.3` were published after this audit. `cordis` stays at
+`~4.1.0` and `schemastery` at `~3.19.0`, so the dependency graph is unchanged.
+
+Changes between `rc.1` and `rc.3` that touch this plugin:
+
+| Change | Effect |
+| --- | --- |
+| `LlmError` constructor narrows its `code` from `string` to `BuiltinLlmFailureCode` (`LLM_FAILURE_CODES` keys or `HTTP_<status>`); adds `LlmError.fromFailure` | `httpErrorCode` now returns `BuiltinLlmFailureCode`, which its branches already produced |
+| `dsh-attachment`: `AttachmentError` extends `HarnessError` and gains an identity check | this plugin never constructs or narrows that error; it propagates whatever the store throws |
+| `dsh-llm` `content.d.ts`: tool-declaration rebuild wording | documentation only |
+| `dsh-app-boot`: optional `dsh.bundle.platforms` (now understanding `wsl`) | this package declares no `platforms`, so every host stays admitted |
+| `dsh-app-boot` compatibility gate | byte-identical to `rc.1` (`engines.dsh` first, else peers) |
+| `dsh-settings`, `dsh-launch-environment`, `dsh-timeout` | no code change |
+
+`0.2.2-rc.3` is therefore added to the verified release list and the plugin
+version becomes `0.3.1`. The range keeps admitting `rc.2` without claiming it was
+verified. Typecheck plus all 56 tests pass against `0.2.2-rc.3`; `0.2.1-rc.5`
+remains green at 55 passing with the gate test skipped where `dsh-app-boot` is
+absent.
+
 ## Residual risk
 
 - `dsh-settings.configure` was reviewed from source and exercised only by booting
