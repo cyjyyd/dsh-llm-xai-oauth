@@ -116,6 +116,24 @@ verified. Typecheck plus all 56 tests pass against `0.2.2-rc.3`; `0.2.1-rc.5`
 remains green at 55 passing with the gate test skipped where `dsh-app-boot` is
 absent.
 
+## Follow-up: `0.2.2-rc.5`
+
+`0.2.2-rc.4` and `0.2.2-rc.5` add one built-in failure code (`CONTENT_REFUSED`)
+to `dsh-llm` and change nothing else: `cordis` stays at `~4.1.0`,
+`schemastery` at `~3.19.0`, and every other plugin-facing package is
+byte-identical to `rc.3`.
+
+That addition is backward compatible — a new member only widens
+`BuiltinLlmFailureCode` — so this plugin needs no source change. It does not map
+any xAI response onto `CONTENT_REFUSED`, because the subscription endpoint has
+not been observed to return a distinguishable refusal and guessing at its shape
+would mislabel ordinary 400s.
+
+`0.2.2-rc.5` is added to the verified release list and the plugin version becomes
+`0.3.2`. `rc.4` is admitted by the range without being claimed as verified.
+Typecheck and all 56 tests pass against `0.2.2-rc.5`; `0.2.1-rc.5` remains green
+at 55 passing with the gate test skipped where `dsh-app-boot` is absent.
+
 ## Residual risk
 
 - `dsh-settings.configure` was reviewed from source and exercised only by booting

@@ -37,7 +37,7 @@ profile 换成 `web` 或 `tui` 即可。**更新必须带 `@latest`。** 写成�
 
 ## 5 分钟配好
 
-下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，支持 `0.2.1-rc.2` 至 `0.2.1-rc.5`，以及 `0.2.2-rc.1`、`0.2.2-rc.3` 及该线更新版本；桌面端安装包就在这条版本线上），Node.js ≥ 22.19。dsh `0.2.0` 与所有 `0.1.x` 已不再支持——它们的设置接口与消息结构在上游已移除。未经验证的预发布版会被拒绝。审计过程见[兼容性审计记录](https://github.com/cyjyyd/dsh-llm-xai-oauth/blob/main/docs/compatibility-audit-0.2.2-rc.1.md)。
+下面默认你已经能运行 `dsh`（`npm i -g @deepseek-ai/dsh`，支持 `0.2.1-rc.2` 至 `0.2.1-rc.5`，以及 `0.2.2-rc.1`、`0.2.2-rc.3`、`0.2.2-rc.5` 及该线更新版本；桌面端安装包就在这条版本线上），Node.js ≥ 22.19。dsh `0.2.0` 与所有 `0.1.x` 已不再支持——它们的设置接口与消息结构在上游已移除。未经验证的预发布版会被拒绝。审计过程见[兼容性审计记录](https://github.com/cyjyyd/dsh-llm-xai-oauth/blob/main/docs/compatibility-audit-0.2.2-rc.1.md)。
 
 ### 1. 把插件装进 profile
 
